@@ -4,6 +4,13 @@
 
 Build a production-oriented AI/RAG application with:
 
+**V1 file-storage constraints:**
+- PDF files only
+- Maximum individual PDF size: **10 MB**
+- Maximum total document storage per user: **50 MB**
+- V1 storage target: Cloudinary Free tier
+- These limits are application-level limits enforced by the backend, independent of Cloudinary limits.
+
 - Android Jetpack Compose
 - MVI architecture
 - Spring Boot backend
@@ -272,6 +279,38 @@ Do not create many Gradle modules initially. Split modules only when the project
 
 Start with **PDF only**.
 
+## V1 File Constraints
+
+For the initial implementation, keep document handling deliberately narrow and predictable:
+
+| Constraint | V1 limit |
+|---|---:|
+| Supported format | PDF only |
+| Maximum individual file size | 10 MB |
+| Maximum total stored document size per user | 50 MB |
+| Storage provider | Cloudinary Free tier |
+
+### Backend enforcement
+
+The backend must enforce both limits before accepting a document:
+
+1. Validate the uploaded file is a PDF.
+2. Validate the file size is at most 10 MB.
+3. Calculate the authenticated user's current stored document usage.
+4. Reject the upload if `currentUsage + newFileSize > 50 MB`.
+5. Only after validation succeeds should the file be stored and the document metadata persisted.
+
+Do not rely only on Cloudinary to enforce these limits. The 10 MB per-file and 50 MB per-user limits are product rules owned by this application.
+
+### Storage accounting
+
+For V1, user storage usage should be calculated from the `documents.file_size` values of that user's stored documents. Deleting a document releases its accounted storage.
+
+The backend should expose clear validation errors for:
+- unsupported file type
+- file too large
+- user storage quota exceeded
+
 ## Document Entity
 
 ```text
@@ -307,19 +346,22 @@ DELETE /api/v1/documents/{id}
 
 ## Development Storage
 
-Initially:
+Initially: **Cloudinary Free tier** for PDF storage.
 
 ```text
-Local filesystem
+Android
+   |
+   v
+Spring Boot
+   |
+   +--> PostgreSQL (metadata + file_size + storage key/public ID)
+   |
+   +--> Cloudinary (PDF file)
 ```
 
-Later:
+Later, Cloudinary can be replaced by S3 or another object-storage provider behind a storage abstraction.
 
-```text
-AWS S3 / Object Storage
-```
-
-PostgreSQL stores metadata and the storage key.
+PostgreSQL stores metadata and the storage key/public ID; it does not store the PDF bytes.
 
 Do not store large PDF files inside PostgreSQL or Qdrant.
 
@@ -863,8 +905,10 @@ Do not put PDFs in Qdrant.
 - [ ] Secure JWT handling
 - [ ] Refresh token rotation
 - [ ] Input validation
-- [ ] File size limits
+- [ ] 10 MB individual PDF size limit
+- [ ] 50 MB per-user document storage quota
 - [ ] PDF type validation
+- [ ] Cloudinary upload failure handling
 - [ ] Rate limiting
 - [ ] User ownership checks
 - [ ] Secrets management
@@ -1129,7 +1173,10 @@ Do NOT try to build everything at once.
 - [ ] Flyway
 - [ ] Authentication
 - [ ] JWT
-- [ ] PDF upload
+- [ ] PDF upload (PDF only)
+- [ ] 10 MB maximum file-size validation
+- [ ] 50 MB per-user storage quota validation
+- [ ] Cloudinary PDF storage
 - [ ] PDF text extraction
 - [ ] Chunking
 - [ ] OpenAI embeddings
@@ -1214,7 +1261,7 @@ Background processing
  |
  v
 V7
-Object storage
+Cloud/Object storage
  |
  v
 V8
@@ -1285,7 +1332,42 @@ This makes the project substantially stronger than a basic CRUD Android + Spring
 
 ---
 
-# 30. Recommended Development Order
+# 30. V1 Document Storage Decision
+
+For the first working version, use **Cloudinary Free** as the PDF file store. Keep the storage integration behind a `DocumentStorageService` interface so it can later be replaced with S3/object storage without changing the document domain or controller contract.
+
+```text
+Android
+   | HTTPS
+   v
+Spring Boot
+   |
+   +--> validate PDF + 10 MB file limit
+   |
+   +--> check user quota (50 MB)
+   |
+   +--> Cloudinary
+   |      
+   |      +--> PDF
+   |
+   +--> PostgreSQL
+          +--> document metadata
+          +--> file_size
+          +--> Cloudinary storage key/public ID
+```
+
+### Quota examples
+
+- 4 PDFs × 10 MB = 40 MB → allowed.
+- 5 PDFs × 10 MB = 50 MB → allowed.
+- Existing usage 45 MB + new 6 MB = 51 MB → rejected.
+- A single 10.1 MB PDF → rejected even if the user has enough remaining quota.
+
+The quota is based on the original uploaded PDF sizes recorded in `documents.file_size`. It is not based on the number of chunks or vector storage size.
+
+---
+
+# 31. Recommended Development Order
 
 Follow this exact order:
 
@@ -1308,7 +1390,7 @@ Follow this exact order:
 16. AI usage/cost tracking
 17. RAG improvements
 18. Background processing
-19. Object storage
+19. Cloud/object storage evolution
 20. Production hardening
 21. Final cloud deployment
 22. Play Store
