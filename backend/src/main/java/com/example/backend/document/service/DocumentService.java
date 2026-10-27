@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.InputStream;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -149,5 +150,31 @@ public class DocumentService {
                     "Only PDF files are supported"
             );
         }
+    }
+
+    public void extractDocumentText(UUID userId, UUID documentId) {
+
+        Document document = documentRepository
+                .findByIdAndUserId(documentId, userId)
+                .orElseThrow(() -> new EntityNotFoundException(
+                        "Document not found"
+                ));
+
+        pdfTextExtractionService.extract(document);
+    }
+
+    public InputStream downloadDocumentBytes(
+            UUID userId,
+            UUID documentId
+    ) {
+        Document document = documentRepository
+                .findByIdAndUserId(documentId, userId)
+                .orElseThrow(() -> new EntityNotFoundException(
+                        "Document not found"
+                ));
+
+        return documentStorageService.download(
+                document.getStorageKey()
+        );
     }
 }

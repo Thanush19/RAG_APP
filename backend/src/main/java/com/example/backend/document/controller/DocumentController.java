@@ -12,6 +12,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.List;
 import java.util.UUID;
 
@@ -77,5 +79,33 @@ public class DocumentController {
         UUID userId = getAuthenticatedUserId(authentication);
 
         documentService.deleteDocumentRecord(userId, documentId);
+    }
+
+    @GetMapping(
+            path = "/{documentId}/bytes",
+            produces = MediaType.APPLICATION_PDF_VALUE
+    )
+    public ResponseEntity<byte[]> getDocumentBytes(
+            Authentication authentication,
+            @PathVariable UUID documentId
+    ) {
+        UUID userId = getAuthenticatedUserId(authentication);
+
+        try (InputStream inputStream =
+                     documentService.downloadDocumentBytes(
+                             userId,
+                             documentId
+                     )) {
+
+            byte[] bytes = inputStream.readAllBytes();
+
+            return ResponseEntity.ok(bytes);
+
+        } catch (IOException exception) {
+            throw new IllegalStateException(
+                    "Failed to download document bytes",
+                    exception
+            );
+        }
     }
 }

@@ -344,6 +344,32 @@ GET    /api/v1/documents/{id}
 DELETE /api/v1/documents/{id}
 ```
 
+### Verified implementation status
+
+The document management phase is implemented and verified:
+
+- PDF-only validation
+- 10 MB individual file-size limit
+- 50 MB per-user storage quota
+- Cloudinary PDF upload
+- PostgreSQL document metadata persistence
+- Authenticated-user ownership checks
+- Document listing and metadata retrieval
+- Document deletion with storage cleanup
+- `DocumentStorageService` abstraction
+
+The existing `GET /api/v1/documents/{id}` remains a metadata endpoint. It does **not** return PDF bytes.
+
+For development verification, a temporary endpoint was added:
+
+```http
+GET /api/v1/documents/{id}/bytes
+```
+
+This endpoint is intentionally temporary. It verifies that the stored Cloudinary `storageKey` can be resolved back to the original PDF and that `DocumentStorageService.download(storageKey)` returns the PDF bytes correctly.
+
+The temporary endpoint has been manually verified successfully. It may be removed after PDF extraction verification is complete.
+
 ## Development Storage
 
 Initially: **Cloudinary Free tier** for PDF storage.
@@ -375,7 +401,10 @@ Processing flow:
 PDF Upload
     |
     v
-Extract text
+Retrieve PDF from storage
+    |
+    v
+Extract text page-by-page
     |
     v
 Split into chunks
@@ -391,6 +420,118 @@ Store vectors in Qdrant
     |
     v
 Document = READY
+```
+
+## 5.1 Current PDF Retrieval Implementation
+
+PDF files are stored in Cloudinary while PostgreSQL stores only document metadata and the Cloudinary `storage_key`. The storage provider is hidden behind:
+
+```java
+DocumentStorageService
+```
+
+The interface now supports:
+
+```java
+String upload(MultipartFile file);
+
+void delete(String storageKey);
+
+InputStream download(String storageKey);
+```
+
+The Cloudinary implementation retrieves the PDF using the stored `storageKey` and returns an `InputStream`. PDF extraction consumes this stream directly; the RAG processing layer does not depend on Cloudinary-specific APIs.
+
+### Retrieval verification completed
+
+A temporary development endpoint was used to verify the complete storage retrieval path:
+
+```http
+GET /api/v1/documents/{id}/bytes
+```
+
+Verified flow:
+
+```text
+documentId
+    |
+    v
+DocumentRepository
+    |
+    v
+Document.storageKey
+    |
+    v
+DocumentStorageService.download()
+    |
+    v
+Cloudinary
+    |
+    v
+PDF InputStream / bytes
+```
+
+The endpoint successfully returned the original PDF bytes. Swagger displays the response as raw PDF/binary content, which is expected for a PDF response.
+
+This endpoint is a temporary verification tool and should be removed once PDF extraction has been verified.
+
+## 5.2 PDF Text Extraction
+
+Use Apache PDFBox for the initial implementation. The extraction service should:
+
+1. Receive an authenticated/owned `Document`.
+2. Read the document through `DocumentStorageService.download(document.getStorageKey())`.
+3. Load the PDF using PDFBox.
+4. Extract text page-by-page.
+5. Preserve the page number for every extracted page.
+6. Return a collection of page-level extraction results that can later be passed to the chunking service.
+
+Suggested service:
+
+```text
+PdfTextExtractionService
+```
+
+Suggested page-level result:
+
+```text
+ExtractedPage
+    - pageNumber
+    - text
+```
+
+The extraction layer must not contain Cloudinary-specific logic. It depends only on `DocumentStorageService`.
+
+### Current implementation status
+
+- [x] PDFBox dependency added
+- [x] `DocumentStorageService.download(storageKey)` added
+- [x] Cloudinary PDF retrieval verified
+- [ ] PDFBox page-by-page extraction verified
+- [ ] Empty extracted text handling verified
+- [ ] Extraction failure handling verified
+
+Do not start chunking until PDF extraction is successfully verified.
+
+### Target processing flow
+
+```text
+Document
+    |
+    | storageKey
+    v
+DocumentStorageService
+    |
+    | InputStream
+    v
+PdfTextExtractionService
+    |
+    +--> Page 1 -> text
+    +--> Page 2 -> text
+    +--> Page 3 -> text
+    |
+    v
+ChunkingService
 ```
 
 ## Chunk Entity
@@ -1124,12 +1265,22 @@ GET  /api/v1/auth/me
 
 ## Documents
 
+Permanent APIs:
+
 ```text
 POST   /api/v1/documents
 GET    /api/v1/documents
 GET    /api/v1/documents/{id}
 DELETE /api/v1/documents/{id}
 ```
+
+Temporary development verification API:
+
+```text
+GET /api/v1/documents/{id}/bytes
+```
+
+This temporary endpoint is not part of the intended V1 public API and should be removed after PDF extraction verification.
 
 ## RAG
 
@@ -1364,6 +1515,60 @@ Spring Boot
 - A single 10.1 MB PDF → rejected even if the user has enough remaining quota.
 
 The quota is based on the original uploaded PDF sizes recorded in `documents.file_size`. It is not based on the number of chunks or vector storage size.
+
+---
+
+# 31. Current Development Status
+
+As of the current implementation checkpoint:
+
+### Completed and verified
+
+- Backend foundation
+- Authentication and JWT security
+- User ownership enforcement
+- Document upload
+- PDF-only validation
+- 10 MB individual file limit
+- 50 MB per-user storage quota
+- Cloudinary PDF storage
+- Document metadata persistence
+- Document list/get/delete APIs
+- Cloudinary cleanup on document deletion
+- `DocumentStorageService` abstraction
+- Cloudinary `download(storageKey)` implementation
+- End-to-end PDF byte retrieval from Cloudinary
+
+### Currently in progress
+
+**PDF text extraction**
+
+Current implementation checkpoint:
+
+```text
+Cloudinary PDF retrieval       [VERIFIED]
+            |
+            v
+PDFBox page-by-page extraction [NEXT]
+            |
+            v
+Page-level extracted text      [NEXT]
+            |
+            v
+Chunking                       [AFTER EXTRACTION]
+```
+
+### Immediate next steps
+
+1. Verify `PdfTextExtractionService` against an uploaded PDF.
+2. Confirm page numbers and extracted text are returned correctly.
+3. Add/verify handling for empty extracted text.
+4. Add/verify extraction failure handling.
+5. Remove the temporary `/documents/{id}/bytes` verification endpoint.
+6. Implement `ChunkingService`.
+7. Persist chunks in PostgreSQL.
+
+Do not proceed to embeddings, Qdrant, or LLM integration until chunking and its persistence are working.
 
 ---
 
