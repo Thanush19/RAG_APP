@@ -67,4 +67,15 @@ public class DocumentController {
         return ((User) authentication.getPrincipal())
                 .getId();
     }
+
+    @DeleteMapping("/{documentId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteDocument(
+            Authentication authentication,
+            @PathVariable UUID documentId
+    ) {
+        UUID userId = getAuthenticatedUserId(authentication);
+
+        documentService.deleteDocumentRecord(userId, documentId);
+    }
 }

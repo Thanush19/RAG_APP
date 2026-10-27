@@ -1,6 +1,7 @@
 package com.example.backend.document.service;
 
 import com.example.backend.auth.entity.User;
+import com.example.backend.common.exception.EntityNotFoundException;
 import com.example.backend.document.dto.DocumentResponse;
 import com.example.backend.document.entity.Document;
 import com.example.backend.document.entity.DocumentStatus;
@@ -15,6 +16,9 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -22,6 +26,9 @@ public class DocumentService {
 
     private static final long MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
     private static final long MAX_USER_STORAGE = 50 * 1024 * 1024; // 50 MB
+
+    private static final Logger log =
+            LoggerFactory.getLogger(DocumentService.class);
 
     private final DocumentRepository documentRepository;
     private final DocumentStorageService documentStorageService;
@@ -100,6 +107,24 @@ public class DocumentService {
 
             throw exception;
         }
+    }
+
+    @Transactional
+    public String deleteDocumentRecord(
+            UUID userId,
+            UUID documentId
+    ) {
+        Document document = documentRepository
+                .findByIdAndUserId(documentId, userId)
+                .orElseThrow(() -> new EntityNotFoundException(
+                        "Document not found"
+                ));
+
+        String storageKey = document.getStorageKey();
+
+        documentRepository.delete(document);
+
+        return storageKey;
     }
 
     private void validateFile(MultipartFile file) {
