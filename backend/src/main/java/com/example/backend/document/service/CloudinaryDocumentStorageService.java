@@ -7,6 +7,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.URL;
 import java.util.Map;
 import java.util.UUID;
 
@@ -54,6 +56,25 @@ public class CloudinaryDocumentStorageService implements DocumentStorageService 
         } catch (IOException exception) {
             throw new IllegalStateException(
                     "Failed to delete document from storage",
+                    exception
+            );
+        }
+    }
+
+    @Override
+    public InputStream download(String storageKey) {
+
+        try {
+            String downloadUrl = cloudinary.url()
+                    .resourceType("raw")
+                    .secure(true)
+                    .generate(storageKey);
+
+            return new URL(downloadUrl).openStream();
+
+        } catch (IOException exception) {
+            throw new IllegalStateException(
+                    "Failed to download document from storage",
                     exception
             );
         }
