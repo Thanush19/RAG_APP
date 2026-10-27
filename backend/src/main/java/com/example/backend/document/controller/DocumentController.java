@@ -3,6 +3,7 @@ package com.example.backend.document.controller;
 import com.example.backend.auth.entity.User;
 import com.example.backend.document.dto.DocumentResponse;
 import com.example.backend.document.service.DocumentService;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -17,6 +18,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/documents")
 @RequiredArgsConstructor
+@SecurityRequirement(name = "bearerAuth")
 public class DocumentController {
 
     private final DocumentService documentService;
