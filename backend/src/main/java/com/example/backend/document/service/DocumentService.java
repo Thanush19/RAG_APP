@@ -32,6 +32,7 @@ public class DocumentService {
 
     private final DocumentRepository documentRepository;
     private final DocumentStorageService documentStorageService;
+    private final PdfTextExtractionService pdfTextExtractionService;
 
     public List<DocumentResponse> getUserDocuments(UUID userId) {
         return documentRepository
