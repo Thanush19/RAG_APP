@@ -47,7 +47,7 @@ app:
   security:
     jwt:
       secret: "7f3c9a2e8b1d6f4a9c7e2b5d8a1f6c3e9d2b7a5f8c4e1d6"
-      access-token-expiration: 90000
+      access-token-expiration: 900000
       refresh-token-expiration-ms: 2592000000
 
   storage:
