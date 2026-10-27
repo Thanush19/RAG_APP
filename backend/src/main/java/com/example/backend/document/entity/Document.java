@@ -43,4 +43,7 @@ public class Document {
 
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
+
+    @Column(name = "storage_key", nullable = false, length = 500)
+    private String storageKey;
 }
