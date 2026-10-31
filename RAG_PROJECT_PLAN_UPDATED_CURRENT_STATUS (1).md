@@ -1038,15 +1038,21 @@ assert against it must stay dynamic (derive expectations from
 Remaining candidates, in recommended order (all from section 15 — pick
 one, don't batch):
 
-1. **Observability**: structured request/trace logging around the
+1. **Better chunking algorithm**: current strategy is
+   page-recursive-split; future work could add structure-aware
+   splitting (headings/paragraph boundaries, semantic grouping),
+   configurable chunk size/overlap, and re-chunking of existing
+   documents via the idempotent reprocess path (section 21.2) —
+   retrieval quality depends on this more than topK/threshold tuning.
+2. **Observability**: structured request/trace logging around the
    RAG path (retrieval latency, LLM token usage), maybe actuator
    metrics for upstream 503s and sweep outcomes.
-2. **Retrieval quality further**: optional reranking, chunk-size/
-   overlap tuning, hybrid keyword+vector search.
-3. **Async ingestion**: upload currently blocks on extraction +
+3. **Retrieval quality further**: optional reranking, hybrid
+   keyword+vector search.
+4. **Async ingestion**: upload currently blocks on extraction +
    embedding + Qdrant; move `DocumentIngestionService` onto a task
    executor/queue and expose status polling.
-4. **Auth/scope polish**: per-user rate limits on
+5. **Auth/scope polish**: per-user rate limits on
    `/api/v1/rag/ask`, request-size caps aligned with model context.
 
 Follow section 20 coding conventions (especially 20.3 transaction
