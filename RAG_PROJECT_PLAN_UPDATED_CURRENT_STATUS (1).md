@@ -923,3 +923,61 @@ NVIDIA LLM client
 → RAG orchestration service (reuse RetrievalService)
 → answer generation with chunk references
 ```
+
+Follow section 20 coding conventions while doing it.
+
+---
+
+# 20. CODING CONVENTIONS — BINDING FOR ALL FUTURE SESSIONS
+
+## 20.1 Lombok, not records (project rule)
+
+All NEW DTOs, response objects, service result carriers, and value
+classes must be Lombok classes, NOT Java records.
+
+Canonical shape (matches `LoginRequest`, `RetrievedChunk`,
+`VectorMatch`, `SearchResponse`):
+
+```java
+@Getter
+@Builder
+@NoArgsConstructor   // only where deserialization needs it
+@AllArgsConstructor
+public class SomeDto {
+
+    @NotBlank(message = "...")   // jakarta validation on request DTOs
+    private String field;
+}
+```
+
+Rules:
+
+- Request DTOs: `@Getter @NoArgsConstructor @AllArgsConstructor` +
+  jakarta validation annotations (see `SearchRequest`).
+- Response/result DTOs: `@Getter @Builder @AllArgsConstructor` with
+  `private final` fields (see `RetrievedChunk`, `VectorMatch`).
+- Access via getters everywhere (`match.getChunkId()`, never
+  `match.chunkId()`).
+- Rationale: consistent Jackson deserialization, builder ergonomics,
+  validation placement, and the established style of this codebase.
+
+Known legacy exceptions (pre-existing records, do NOT mass-rewrite
+them; when touching one for a feature, convert it to Lombok then):
+
+- `common/response/ApiErrorResponse` (+ nested `FieldError`)
+- `document/dto/ChunkData`
+- `rag/dto/NvidiaEmbeddingResponse` (+ nested `EmbeddingData`)
+
+## 20.2 Other enforced conventions
+
+- Constructor injection via `@RequiredArgsConstructor` + `private final`.
+- Controllers stay thin: resolve `userId` from
+  `((User) authentication.getPrincipal()).getId()`, delegate to a
+  service, no business logic in controllers.
+- External-system types (Qdrant gRPC, NVIDIA JSON) never leak past
+  their service implementation classes.
+- Ownership is always double-enforced (vector-store filter AND SQL
+  predicate); never trust a client-supplied ID.
+- Any Qdrant payload field used in a search filter must have a keyword
+  payload index created in `QdrantCollectionInitializer` first
+  (section 10.5).
