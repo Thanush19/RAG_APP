@@ -3,6 +3,7 @@ package com.example.backend.document.service;
 import com.example.backend.auth.entity.User;
 import com.example.backend.common.exception.EntityNotFoundException;
 import com.example.backend.document.dto.DocumentResponse;
+import com.example.backend.document.dto.ExtractedPage;
 import com.example.backend.document.entity.Document;
 import com.example.backend.document.entity.DocumentStatus;
 import com.example.backend.document.repository.DocumentRepository;
@@ -152,15 +153,17 @@ public class DocumentService {
         }
     }
 
-    public void extractDocumentText(UUID userId, UUID documentId) {
-
+    public List<ExtractedPage> extractDocumentText(
+            UUID userId,
+            UUID documentId
+    ) {
         Document document = documentRepository
                 .findByIdAndUserId(documentId, userId)
                 .orElseThrow(() -> new EntityNotFoundException(
                         "Document not found"
                 ));
 
-        pdfTextExtractionService.extract(document);
+        return pdfTextExtractionService.extract(document);
     }
 
     public InputStream downloadDocumentBytes(

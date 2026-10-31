@@ -2,7 +2,10 @@ package com.example.backend.document.controller;
 
 import com.example.backend.auth.entity.User;
 import com.example.backend.document.dto.DocumentResponse;
+import com.example.backend.document.dto.ExtractedPage;
+import com.example.backend.document.entity.Document;
 import com.example.backend.document.service.DocumentService;
+import com.example.backend.document.service.PdfTextExtractionService;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -24,6 +27,8 @@ import java.util.UUID;
 public class DocumentController {
 
     private final DocumentService documentService;
+    private final PdfTextExtractionService pdfTextExtractionService;
+
 
     @GetMapping
     public ResponseEntity<List<DocumentResponse>> getDocuments(
@@ -107,5 +112,17 @@ public class DocumentController {
                     exception
             );
         }
+    }
+
+    @GetMapping("/{documentId}/text")
+    public ResponseEntity<List<ExtractedPage>> extractText(
+            Authentication authentication,
+            @PathVariable UUID documentId
+    ) {
+        UUID userId = getAuthenticatedUserId(authentication);
+
+        return ResponseEntity.ok(
+                documentService.extractDocumentText(userId, documentId)
+        );
     }
 }
