@@ -1058,6 +1058,17 @@ one, don't batch):
 Follow section 20 coding conventions (especially 20.3 transaction
 boundaries) while doing it.
 
+CLIENT SIDE: a separate living plan now exists for the Android/Jetpack
+Compose (MVI) client — see
+`RAG_ANDROID_CLIENT_PLAN.md` in the project root (decisions settled
+2026-10-31: Retrofit+OkHttp, PdfRenderer pager, phone-first adaptive
+from M2, project location `TODO/client-android`; implementation not
+started). The backend is
+consumed as-is; no new endpoints are needed for the client's v1 use
+cases (including the profile-page list/view/delete flow, which maps to
+GET /api/v1/documents, GET /api/v1/documents/{id}/bytes and
+DELETE /api/v1/documents/{id}).
+
 ---
 
 # 20. CODING CONVENTIONS — BINDING FOR ALL FUTURE SESSIONS
