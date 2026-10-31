@@ -64,6 +64,22 @@ consumes it as-is, no new backend endpoints are required.
 
 # 4. MVI ARCHITECTURE (binding convention)
 
+## 4.0 DI = Hilt (binding convention, skill for every session)
+
+- All injection goes through Hilt; no manual service locators, no
+  hand-wired singletons outside Hilt modules.
+- ViewModels: `@HiltViewModel class X @Inject constructor(...)`,
+  consumed via `hiltViewModel()` in composables.
+- Singleton graph (`@InstallIn(SingletonComponent)`): `NetworkModule`
+  (Json/OkHttp/Retrofit + the 3 API interfaces), `DatabaseModule`
+  (Room), `TokenStore`/`RagStreamClient` as `@Singleton`.
+- `@HiltAndroidApp` on Application, `@AndroidEntryPoint` on the single
+  Activity. Fragments/Compose nav entries use `androidx.hilt:hilt-
+  navigation-compose`.
+- Future sessions MUST register new dependencies in a Hilt module
+  rather than constructing them in features.
+
+
 Per feature/screen, exactly three concepts:
 
 ```text
@@ -156,6 +172,10 @@ Design principles (the product owner explicitly asked for this):
      current material3 release (expressive shapes,
      `FloatingActionButton` variants, spring motion specs).
 
+3. **Hilt DI** — binding convention in section 4.0; every feature
+   wires its dependencies through Hilt modules, ViewModels via
+   `@HiltViewModel` + `hiltViewModel()`. (Applied from M0 onward.)
+
 ## 5.2 Screen inventory
 
 | Route | State highlights | Intents |
@@ -195,10 +215,8 @@ Design principles (the product owner explicitly asked for this):
 
 # 8. MILESTONES
 
-- M0: project scaffold (Compose BOM, Hilt, Retrofit, Room + DataStore
-  skeletons, navigation,
-  design-token skeleton, CI build) — compiles + empty shell.
-- M1: auth flow end-to-end with token refresh.
+- M0: project scaffold — **COMPLETE 2026-10-31** (see 10).
+- M1: auth flow end-to-end with token refresh. — NEXT
 - M2: Library/profile page — list, upload, delete, view (PdfRenderer),
   retry; adaptive list-detail at medium+.
 - M3: Ask with live SSE streaming + sources chips.
@@ -216,4 +234,107 @@ Design principles (the product owner explicitly asked for this):
 - D4 Location: **`C:\Users\Thanush\projects\TODO\client-android`**
   (git strategy decided later).
 
-Implementation has NOT started; M0 scaffold is the first step.
+# 10. M0 IMPLEMENTATION RECORD (2026-10-31) — COMPLETE
+
+Location: `C:\Users\Thanush\projects\TODO\client-android`
+(module `:app`, namespace `com.ragclient.android`).
+
+## 10.1 Settled toolchain (do not re-derive)
+
+- **AGP 9.3.0** — HARD CEILING: the owner's Android Studio supports
+  at most 9.3.0 (9.5.0 was tried and rejected by the IDE). Never bump
+  past 9.3.0 without confirming the Studio version.
+- **Gradle 9.7.1** wrapper (jar + properties copied from `backend/`;
+  distribution already cached locally).
+- **compileSdk 37 / targetSdk 37 / minSdk 26.**
+- **Kotlin via AGP 9 built-in support.** `org.jetbrains.kotlin.android`
+  MUST NOT be applied — AGP 9 fails the build if it is. Plugins in
+  `app/build.gradle.kts`: `com.android.application`,
+  `org.jetbrains.kotlin.compose`, `org.jetbrains.kotlin.serialization`,
+  `com.google.devtools.ksp`, `com.google.dagger.hilt.android`.
+  JVM target set with `android { kotlin { jvmToolchain(17) … } }`,
+  plus `compilerOptions { freeCompilerArgs.add("-Xskip-prerelease-check") }`.
+- **Hilt 2.60.1** (2.58 breaks with AGP 9 — "Could not find the AGP
+  base extension"). Needs the KSP compiler artifact
+  `com.google.dagger:hilt-compiler` (catalog alias `hilt-compiler`;
+  do NOT map it to `androidx.hilt:hilt-compiler`, which is a different
+  library and triggers "no com.google.dagger:hilt-compiler dependency
+  was found"). KSP 2.3.13, Kotlin catalog version 2.3.21.
+- **Compose BOM 2026.09.00**, Material 3, navigation-compose 2.10.2,
+  hilt-navigation-compose 1.4.0, lifecycle 2.11.0.
+- **Retrofit 3.0.0 + OkHttp/okhttp-sse 5.5.1**, kotlinx-serialization
+  1.12.0, coroutines 1.11.0, Room 2.8.5 (+ KSP, schema exported to
+  `app/schemas`), DataStore-preferences 1.3.0, security-crypto
+  1.1.0-alpha06, Turbine 1.2.1, MockWebServer 5.5.1.
+- **Retrofit 3 converter gotcha (cost hours):** the kotlinx-serialization
+  converter's public API is the top-level extension function, NOT the
+  factory class — `KotlinSerializationConverterFactory` is an internal
+  synthesized facade (`javap -v -p` shows `k=2`). Correct usage:
+  `import retrofit2.converter.kotlinx.serialization.asConverterFactory`
+  then `.addConverterFactory(json.asConverterFactory("application/json".toMediaType()))`.
+- **Icons:** only the core icon set is on the classpath —
+  `Icons.Filled.Stop` and `Icons.AutoMirrored.Filled.Chat` do NOT
+  resolve. Use `Icons.Filled.Close` / `Icons.Filled.Info` / Home /
+  Search, or add `androidx.compose.material:material-icons-extended`
+  deliberately (APK size).
+
+## 10.2 Environment constraints
+
+- `ANDROID_HOME` is unset; SDK lives at
+  `C:\Users\Thanush\AppData\Local\Android\Sdk` and `local.properties`
+  points `sdk.dir` there.
+- **No `cmdline-tools` / `sdkmanager`.** API 37 was installed manually:
+  download `https://dl.google.com/android/repository/platform-37.0_r02.zip`
+  and unpack to `Sdk/platforms/android-37`. (A `platform-37.2_r02.zip`
+  revision also exists; keep it in a separate folder so it doesn't
+  clobber the base platform.)
+- `DebugConfig`/`BuildConfig`: `API_BASE_URL = "http://10.0.2.2:8080/"`
+  (emulator → host), `usesCleartextTraffic="true"` for debug.
+
+## 10.3 What exists
+
+- `core/designsystem`: typed tokens `AppColors`/`AppType`/`AppShapes`
+  + `RagClientTheme` (emerald-on-paper, serif answer display type,
+  28dp prompt-bar shape). CompositionLocal-based by design so it can
+  migrate to the redesigned Styles API later. Dynamic color deferred
+  to M4.
+- `core/mvi/BaseViewModel<State, Intent, Result>`: `onIntent` →
+  abstract `handle` → `reduceResult` → pure `reduce`. `setState` takes
+  a **receiver** lambda (`State.() -> State`) — a plain
+  `(State) -> State` param breaks `state.copy(…)` at call sites.
+- `domain/model`: `DocumentStatus`, `RagSourceModel`, `StreamEvent`
+  (Sources/Token/Done/Error) mirroring backend plan §22.
+- `data`: DTOs + Retrofit interfaces for auth/documents/search/rag
+  (paths verified against the controllers), `AuthInterceptor`,
+  `NetworkModule`, `RagStreamClient` (okhttp-sse POST →
+  `callbackFlow<StreamEvent>`, named-event parsing, `awaitClose`
+  cancel), `TokenStore` (DataStore prefs; encrypted-provider migration
+  is M1), Room `document_cache` + `DatabaseModule`.
+- `feature/ask`: full MVI vertical slice (contract, reducer,
+  view model, answer-first `AskScreen` with `S1 · p<n>` source pills).
+  `feature/auth|library|search|viewer` are compilable stubs.
+- `navigation/AppNavHost`: phone-first bottom bar (Library/Ask/Search);
+  rail + list-detail land in M2 via `calculateWindowSizeClass`.
+- Tests: `AskReducerTest` (3 pure reducer cases incl. the
+  "error preserves streamed tokens" rule).
+
+## 10.4 Verification evidence
+
+- `./gradlew :app:assembleDebug` → `GRADLE_EXIT=0`,
+  **BUILD SUCCESSFUL in 36s**, artifact
+  `app/build/outputs/apk/debug/app-debug.apk` (15,322,038 bytes).
+- `./gradlew :app:testDebugUnitTest` → `AskReducerTest`
+  `tests="3" skipped="0" failures="0" errors="0"`
+  (`app/build/test-results/testDebugUnitTest/`).
+- Rule re-applied from backend plan 21.7: never trust a piped
+  command's exit code — capture `GRADLE_EXIT=$?` and grep the log for
+  `BUILD SUCCESSFUL|FAILED` plus the XML results.
+- The temporary `printCompileCp` diagnostic task used to prove the
+  converter jar was on `debugCompileClasspath` has been REMOVED.
+
+## 10.5 M1 scope (next)
+
+Login/register screens on the existing `AuthApi`, 401 → refresh-once
+interceptor, migrate `TokenStore` to the security-crypto encrypted
+DataStore provider (call sites unchanged), session-gated
+`startDestination`, and a MockWebServer auth round-trip test.
