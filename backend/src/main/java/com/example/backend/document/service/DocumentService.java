@@ -14,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+import com.example.backend.rag.embedding.EmbeddingService;
 
 import java.io.InputStream;
 import java.time.OffsetDateTime;
@@ -40,6 +41,7 @@ public class DocumentService {
     private final PdfTextExtractionService pdfTextExtractionService;
     private final DocumentChunkRepository documentChunkRepository;
     private final ChunkingService chunkingService;
+    private final EmbeddingService embeddingService;
 
     public List<DocumentResponse> getUserDocuments(UUID userId) {
         return documentRepository
@@ -211,6 +213,17 @@ public class DocumentService {
         for (int i = 0; i < chunkData.size(); i++) {
 
             ChunkData data = chunkData.get(i);
+
+            // Generate embedding for the chunk
+            float[] embedding =
+                    embeddingService.embedPassage(data.text());
+
+            log.debug(
+                    "Generated embedding for chunk {} of document {} with dimension {}",
+                    i,
+                    documentId,
+                    embedding.length
+            );
 
             DocumentChunk chunk = DocumentChunk.builder()
                     .id(UUID.randomUUID())
