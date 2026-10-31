@@ -10,6 +10,7 @@ import com.example.backend.document.entity.DocumentChunk;
 import com.example.backend.document.entity.DocumentStatus;
 import com.example.backend.document.repository.DocumentChunkRepository;
 import com.example.backend.document.repository.DocumentRepository;
+import com.example.backend.rag.vector.VectorStoreService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,6 +43,7 @@ public class DocumentService {
     private final DocumentChunkRepository documentChunkRepository;
     private final ChunkingService chunkingService;
     private final EmbeddingService embeddingService;
+    private final VectorStoreService vectorStoreService;
 
     public List<DocumentResponse> getUserDocuments(UUID userId) {
         return documentRepository
@@ -204,7 +206,6 @@ public class DocumentService {
         List<ChunkData> chunkData =
                 chunkingService.chunk(pages);
 
-        // 3. Convert ChunkData → DocumentChunk
         OffsetDateTime now =
                 OffsetDateTime.now(ZoneOffset.UTC);
 
@@ -214,7 +215,21 @@ public class DocumentService {
 
             ChunkData data = chunkData.get(i);
 
-            // Generate embedding for the chunk
+            // 3. Create PostgreSQL chunk
+            DocumentChunk chunk = DocumentChunk.builder()
+                    .id(UUID.randomUUID())
+                    .document(document)
+                    .chunkIndex(i)
+                    .pageNumber(data.pageNumber())
+                    .text(data.text())
+                    .createdAt(now)
+                    .build();
+
+            // 4. Persist chunk first so PostgreSQL owns the metadata
+            DocumentChunk savedChunk =
+                    documentChunkRepository.save(chunk);
+
+            // 5. Generate embedding
             float[] embedding =
                     embeddingService.embedPassage(data.text());
 
@@ -225,19 +240,21 @@ public class DocumentService {
                     embedding.length
             );
 
-            DocumentChunk chunk = DocumentChunk.builder()
-                    .id(UUID.randomUUID())
-                    .document(document)
-                    .chunkIndex(i)
-                    .pageNumber(data.pageNumber())
-                    .text(data.text())
-                    .createdAt(now)
-                    .build();
+            // 6. Store vector in Qdrant
+            vectorStoreService.storeChunk(
+                    userId,
+                    documentId,
+                    savedChunk.getId(),
+                    data.pageNumber(),
+                    embedding
+            );
 
-            chunks.add(chunk);
+            // 7. Keep the Qdrant point ID in PostgreSQL
+            savedChunk.setQdrantPointId(savedChunk.getId());
+
+            chunks.add(savedChunk);
         }
 
-        // 4. Persist all chunks
-        return documentChunkRepository.saveAll(chunks);
+        return chunks;
     }
 }

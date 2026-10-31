@@ -46,4 +46,8 @@ public class DocumentChunk {
 
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
+
+    public void setQdrantPointId(UUID qdrantPointId) {
+        this.qdrantPointId = qdrantPointId;
+    }
 }
