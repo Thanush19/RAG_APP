@@ -9,6 +9,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
+
 @Component
 @RequiredArgsConstructor
 public class QdrantCollectionInitializer {
@@ -28,7 +30,7 @@ public class QdrantCollectionInitializer {
                     .get();
 
             if (exists) {
-                ensureUserIdIndex();
+                ensurePayloadIndexes();
                 return;
             }
 
@@ -42,7 +44,7 @@ public class QdrantCollectionInitializer {
                     )
                     .get();
 
-            ensureUserIdIndex();
+            ensurePayloadIndexes();
 
         } catch (Exception exception) {
             throw new IllegalStateException(
@@ -53,17 +55,19 @@ public class QdrantCollectionInitializer {
         }
     }
 
-    private void ensureUserIdIndex() throws Exception {
-        qdrantClient
-                .createPayloadIndexAsync(
-                        collectionName,
-                        "userId",
-                        PayloadSchemaType.Keyword,
-                        null,
-                        true,
-                        null,
-                        null
-                )
-                .get();
+    private void ensurePayloadIndexes() throws Exception {
+        for (String field : List.of("userId", "documentId")) {
+            qdrantClient
+                    .createPayloadIndexAsync(
+                            collectionName,
+                            field,
+                            PayloadSchemaType.Keyword,
+                            null,
+                            true,
+                            null,
+                            null
+                    )
+                    .get();
+        }
     }
 }

@@ -18,4 +18,9 @@ public interface VectorStoreService {
             float[] queryEmbedding,
             int topK
     );
+
+    void deleteDocumentVectors(
+            UUID userId,
+            UUID documentId
+    );
 }

@@ -133,6 +133,18 @@ public class DocumentService {
 
         documentRepository.delete(document);
 
+        try {
+            vectorStoreService.deleteDocumentVectors(userId, documentId);
+        } catch (Exception exception) {
+            log.warn(
+                    "Document {} deleted from PostgreSQL but Qdrant "
+                            + "vector cleanup failed; orphaned points remain "
+                            + "and are unreachable via retrieval",
+                    documentId,
+                    exception
+            );
+        }
+
         return storageKey;
     }
 

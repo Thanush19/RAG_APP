@@ -747,36 +747,125 @@ Only after this works should the project move to LLM generation.
 
 ---
 
-# 14. AFTER RETRIEVAL — LLM GENERATION
+# 14. LLM GENERATION — COMPLETE (FULL IMPLEMENTATION RECORD)
 
-Once retrieval is proven:
+Basic RAG now works end-to-end:
+question → retrieval (section 10) → context → NVIDIA LLM → grounded
+answer + sources.
+
+## 14.1 Working RAG flow
 
 ```text
-User question
+Authenticated user
  ↓
-Query embedding
+POST /api/v1/rag/ask { "question": "...", "topK": 5 }
  ↓
-Qdrant retrieval
+RagService.ask(userId, question, topK)
  ↓
-PostgreSQL chunk text
+RetrievalService.retrieve(...)           (reused unchanged)
+ ↓ (empty)  → short-circuit: fixed message, sources=[] , NO LLM call
+ ↓ (chunks)
+ContextBuilder
+ ├── system prompt: answer ONLY from context + cite [S1][S2] + exact
+ │                  fallback sentence when context insufficient
+ └── user prompt:   numbered [Sn] blocks with document/page metadata
  ↓
-Context construction
+LlmClient.chat(system, user)  →  NvidiaLlmClient
  ↓
-NVIDIA LLM
- ↓
-Generated answer
+RagAnswer { answer, sources[] }   (sources ordered = [S1]→sources[0])
 ```
 
-Implement:
+## 14.2 Files created for generation
 
-- NVIDIA LLM client
-- LLM abstraction
-- prompt/context builder
-- RAG orchestration service
-- answer generation
-- source/chunk references
+| File | Role |
+|---|---|
+| `rag/llm/LlmClient.java` | Abstraction: `String chat(String systemPrompt, String userPrompt)` |
+| `rag/llm/NvidiaLlmClient.java` | RestClient `POST /chat/completions`; parses via `tools.jackson.databind.JsonNode`; no wire DTO needed |
+| `rag/ask/ContextBuilder.java` | System prompt + `[Sn] (document=..., page=...)` context blocks |
+| `rag/ask/RagService.java` | Orchestration; empty-retrieval short-circuit (saves LLM cost, prevents hallucination) |
+| `rag/ask/RagAnswer.java` / `RagSource.java` | Lombok result DTOs (section 20 style) |
+| `rag/ask/RagController.java` | Thin `POST /api/v1/rag/ask` |
+| `rag/ask/dto/AskRequest.java` | `question` @NotBlank max 2000; `topK` optional 1..20, default 5 |
+| `rag/ask/dto/AskResponse.java` | `{ answer, sources[] }` |
+| `RagServiceTest.java` (live) | Grounded answer + sources for the real document; short-circuit for foreign user; topK=20 cites exactly the 2 real chunk IDs |
 
-Do not implement this before retrieval works.
+## 14.3 CRITICAL — NVIDIA chat model availability on this free account
+
+`meta/llama-3.1-8b-instruct` returned:
+
+```text
+410 Gone: The model 'meta/llama-3.1-8b-instruct' has reached its
+end of life on 2026-08-26
+```
+
+And the account rejects most catalog models with:
+
+```text
+404 Function Not Found for account
+```
+
+including `nvidia/llama-3.1-nemotron-70b-instruct`,
+`nv-mistralai/mistral-nemo-12b-instruct`, `mistralai/mistral-7b-instruct-v0.3`,
+`google/gemma-3-4b-it`, `ibm/granite-3.0-8b-instruct`,
+`microsoft/phi-3.5-moe-instruct`, `nvidia/nemotron-nano-3-30b-a3b`.
+
+**Working chat model for this key: `openai/gpt-oss-20b`** — verified live.
+Config:
+
+```yaml
+app:
+  ai:
+    nvidia:
+      chat-model: openai/gpt-oss-20b
+      chat-max-tokens: 2048
+```
+
+gpt-oss consumes `max_tokens` for internal reasoning too — keep
+`chat-max-tokens >= 2048` or `message.content` comes back null.
+Model swap = config change only; `LlmClient` isolates it.
+
+## 14.4 CRITICAL — Jackson 3 in Spring Boot 4
+
+This project deserializes via Jackson 3 (`tools.jackson.*`), NOT
+`com.fasterxml.jackson.databind.JsonNode` (that import caused
+`HttpMessageConversionException: Type definition error`).
+Rule: any new JSON-tree parsing must import
+`tools.jackson.databind.JsonNode`; use `asString()` not deprecated
+`asText()`.
+
+## 14.5 Verified answer evidence
+
+Query "What is this document about? Who is the person?" against the
+real resume document returned (live, 2026-10-31):
+
+```text
+The document is a résumé (CV) that outlines the professional
+background, technical skills, work experience, education, and projects
+of an individual. The person described is Rahul Srivastava, a
+Full-Stack Developer currently working at Northern Arc Capital, with
+expertise in Spring Boot, Node.js, React.js, Angular, and related
+technologies.
+```
+
+Sources: the 2 real chunk IDs with documentId/pageNumber/score.
+
+## 14.6 How to test generation
+
+```bash
+./gradlew test --tests com.example.backend.RagServiceTest
+```
+
+Manual:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/rag/ask \
+  -H "Authorization: Bearer <accessToken>" \
+  -H "Content-Type: application/json" \
+  -d '{"question":"What is this document about?","topK":5}'
+```
+
+Cosine score note: scores can be near-zero or negative for real
+queries; tests assert the [-1, 1] range and ORDER, never `score > 0`.
 
 ---
 
@@ -851,23 +940,36 @@ Once basic RAG works, introduce a simple, production-explainable consistency/ret
 
 ---
 
-# 17. DOCUMENT DELETION — FUTURE CHECK
+# 17. DOCUMENT DELETION — COMPLETE (VECTOR CLEANUP ADDED)
 
-Current document deletion removes the PostgreSQL document record and returns the Cloudinary storage key.
-
-Because Qdrant now contains vectors, deletion must eventually also remove:
+`DELETE /api/v1/documents/{id}` now removes:
 
 ```text
-Document
+Document (PostgreSQL; chunks removed via ON DELETE CASCADE)
  ↓
-DocumentChunks
- ↓
-Qdrant points
+Qdrant points via deleteDocumentVectors(userId, documentId)
+   = deleteAsync(collection, Filter: must userId keyword AND
+                              must documentId keyword)
 ```
 
-This should be addressed before calling document deletion fully production-ready.
+Implementation record:
 
-Do not implement it before retrieval unless it becomes necessary.
+- `VectorStoreService.deleteDocumentVectors(UUID userId, UUID documentId)`
+  added; Qdrant details stay inside `QdrantVectorStoreService`.
+- `documentId` keyword payload index is now created at startup
+  (`QdrantCollectionInitializer.ensurePayloadIndexes()` covers
+  `userId` + `documentId`) — same indexed-filter requirement as 10.5.
+- Order and failure semantics (deliberate, simple, interview-explainable):
+  PostgreSQL delete first; Qdrant delete second inside a try/catch that
+  logs a WARN and does NOT roll back or fail the API.
+  - Qdrant delete fails → orphan points remain but are UNREACHABLE
+    (retrieval requires the PostgreSQL ownership row, which is gone).
+  - Known edge: Qdrant delete succeeds then PG commit fails → document
+    survives without vectors until re-upload. Accepted at this stage;
+    the full consistency/retry strategy is section 16 work.
+- Verified by `DocumentVectorDeletionTest` (non-destructive: deletes a
+  random documentId, proving filter execution + index existence without
+  touching the real indexed document).
 
 ---
 
@@ -910,19 +1012,27 @@ Do not implement it before retrieval unless it becomes necessary.
 
 Do not restart or redesign anything.
 
-Retrieval is complete and verified (`RetrievalServiceTest`, `POST /api/v1/search`).
+BASIC RAG IS COMPLETE AND VERIFIED:
 
-Start from:
+- ingestion (sections 2–8) ✔
+- retrieval + `POST /api/v1/search` (section 10) ✔
+- generation + `POST /api/v1/rag/ask` (section 14) ✔
+- deletion removes Qdrant points (section 17) ✔
 
-**LLM generation (section 14).**
+Next candidates, in recommended order (all from section 15 — pick one,
+don't batch):
 
-```text
-NVIDIA LLM client
-→ LLM abstraction
-→ prompt/context builder
-→ RAG orchestration service (reuse RetrievalService)
-→ answer generation with chunk references
-```
+1. **Production hardening of RAG errors**: LLM/Qdrant/NVIDIA outages
+   currently surface as 500 via `IllegalStateException`; consider typed
+   exceptions + mapping in `GlobalExceptionHandler` and timeout config
+   on the NVIDIA RestClient.
+2. **Ingestion status**: `DocumentStatus` exists — expose
+   processing/failed states and make upload survive embedding/Qdrant
+   failure (currently the whole upload path is one flow).
+3. **PostgreSQL↔Qdrant consistency strategy** (section 16) — retry/
+   idempotency + orphan sweep.
+4. Retrieval quality: similarity threshold, document-scoped search
+   (`documentId` filter — index already exists), reranking.
 
 Follow section 20 coding conventions while doing it.
 
@@ -981,3 +1091,8 @@ them; when touching one for a feature, convert it to Lombok then):
 - Any Qdrant payload field used in a search filter must have a keyword
   payload index created in `QdrantCollectionInitializer` first
   (section 10.5).
+- JSON-tree parsing must use Jackson 3: `tools.jackson.databind.JsonNode`
+  + `asString()`; `com.fasterxml.jackson.databind.JsonNode` breaks the
+  RestClient converter at runtime (section 14.4).
+- Cosine scores may be negative/near-zero; assert ORDER and [-1, 1]
+  bounds in tests, never `score > 0` (section 14.6).

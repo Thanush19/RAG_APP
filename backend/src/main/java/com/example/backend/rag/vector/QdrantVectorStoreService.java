@@ -137,4 +137,34 @@ public class QdrantVectorStoreService implements VectorStoreService {
             );
         }
     }
+
+    @Override
+    public void deleteDocumentVectors(
+            UUID userId,
+            UUID documentId
+    ) {
+        Filter filter = Filter.newBuilder()
+                .addMust(matchKeyword("userId", userId.toString()))
+                .addMust(matchKeyword("documentId", documentId.toString()))
+                .build();
+
+        try {
+            qdrantClient
+                    .deleteAsync(collectionName, filter)
+                    .get();
+
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(
+                    "Interrupted while deleting Qdrant vectors for document: "
+                            + documentId,
+                    exception
+            );
+        } catch (Exception exception) {
+            throw new IllegalStateException(
+                    "Failed to delete Qdrant vectors for document: " + documentId,
+                    exception
+            );
+        }
+    }
 }

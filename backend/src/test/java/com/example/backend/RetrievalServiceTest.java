@@ -36,7 +36,7 @@ class RetrievalServiceTest {
         assertThat(results).allSatisfy(chunk -> {
             assertThat(chunk.getDocumentId()).isEqualTo(REAL_DOCUMENT_ID);
             assertThat(chunk.getText()).isNotBlank();
-            assertThat(chunk.getScore()).isGreaterThan(0f);
+            assertThat(chunk.getScore()).isBetween(-1f, 1f);
         });
 
         assertThat(results).isSortedAccordingTo(
