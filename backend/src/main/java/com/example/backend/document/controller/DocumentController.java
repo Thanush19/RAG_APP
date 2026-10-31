@@ -75,6 +75,18 @@ public class DocumentController {
                 .getId();
     }
 
+    @PostMapping("/{documentId}/reprocess")
+    public ResponseEntity<DocumentResponse> reprocessDocument(
+            Authentication authentication,
+            @PathVariable UUID documentId
+    ) {
+        UUID userId = getAuthenticatedUserId(authentication);
+
+        return ResponseEntity.ok(
+                documentService.reprocessDocument(userId, documentId)
+        );
+    }
+
     @DeleteMapping("/{documentId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteDocument(

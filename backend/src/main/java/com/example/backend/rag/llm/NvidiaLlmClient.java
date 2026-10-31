@@ -1,10 +1,12 @@
 package com.example.backend.rag.llm;
 
+import com.example.backend.common.exception.LlmUnavailableException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 import tools.jackson.databind.JsonNode;
 
 import java.util.List;
@@ -58,22 +60,29 @@ public class NvidiaLlmClient implements LlmClient {
                 "stream", false
         );
 
-        JsonNode response = restClient
-                .post()
-                .uri("/chat/completions")
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(requestBody)
-                .retrieve()
-                .body(JsonNode.class);
+        JsonNode response;
+
+        try {
+            response = restClient
+                    .post()
+                    .uri("/chat/completions")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(requestBody)
+                    .retrieve()
+                    .body(JsonNode.class);
+
+        } catch (RestClientException exception) {
+            throw new LlmUnavailableException(exception);
+        }
 
         JsonNode content = response == null
                 ? null
                 : response.path("choices").path(0).path("message").path("content");
 
         if (content == null || content.isMissingNode() || content.asString().isBlank()) {
-            throw new IllegalStateException(
+            throw new LlmUnavailableException(new IllegalStateException(
                     "NVIDIA response does not contain generated content"
-            );
+            ));
         }
 
         return content.asString().trim();

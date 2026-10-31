@@ -90,6 +90,50 @@ public class GlobalExceptionHandler {
         );
     }
 
+    @ExceptionHandler(UpstreamServiceException.class)
+    public ResponseEntity<ApiErrorResponse> handleUpstreamUnavailable(
+            UpstreamServiceException exception,
+            HttpServletRequest request
+    ) {
+
+        log.warn(
+                "Upstream dependency failure. requestId={}, path={}, cause={}",
+                MDC.get("requestId"),
+                request.getRequestURI(),
+                exception.getMessage()
+        );
+
+        return buildResponse(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "UPSTREAM_UNAVAILABLE",
+                exception.getMessage(),
+                request,
+                List.of()
+        );
+    }
+
+    @ExceptionHandler(DocumentProcessingException.class)
+    public ResponseEntity<ApiErrorResponse> handleDocumentProcessing(
+            DocumentProcessingException exception,
+            HttpServletRequest request
+    ) {
+
+        log.error(
+                "Document ingestion failed. requestId={}, path={}",
+                MDC.get("requestId"),
+                request.getRequestURI(),
+                exception
+        );
+
+        return buildResponse(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "DOCUMENT_PROCESSING_FAILED",
+                exception.getMessage(),
+                request,
+                List.of()
+        );
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiErrorResponse> handleUnexpected(
             Exception exception,

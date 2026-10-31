@@ -67,4 +67,42 @@ class RetrievalServiceTest {
 
         assertThat(results).isEmpty();
     }
+
+    @Test
+    void shouldScopeSearchToGivenDocument() {
+
+        List<RetrievedChunk> results = retrievalService.retrieve(
+                REAL_USER_ID,
+                "What is this document about?",
+                5,
+                REAL_DOCUMENT_ID,
+                null
+        );
+
+        assertThat(results).isNotEmpty();
+
+        List<RetrievedChunk> otherDocument = retrievalService.retrieve(
+                REAL_USER_ID,
+                "What is this document about?",
+                5,
+                UUID.randomUUID(),
+                null
+        );
+
+        assertThat(otherDocument).isEmpty();
+    }
+
+    @Test
+    void shouldFilterResultsBelowMinScore() {
+
+        List<RetrievedChunk> results = retrievalService.retrieve(
+                REAL_USER_ID,
+                "What is this document about?",
+                5,
+                null,
+                0.9f
+        );
+
+        assertThat(results).isEmpty();
+    }
 }

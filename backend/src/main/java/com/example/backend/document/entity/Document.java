@@ -46,4 +46,12 @@ public class Document {
 
     @Column(name = "storage_key", nullable = false, length = 500)
     private String storageKey;
+
+    public void setStatus(DocumentStatus status) {
+        this.status = status;
+    }
+
+    public void setUpdatedAt(OffsetDateTime updatedAt) {
+        this.updatedAt = updatedAt;
+    }
 }

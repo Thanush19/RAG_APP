@@ -1,5 +1,6 @@
 package com.example.backend.rag.embedding;
 
+import com.example.backend.common.exception.EmbeddingUnavailableException;
 import com.example.backend.rag.dto.NvidiaEmbeddingResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -8,6 +9,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 
 import java.util.HashMap;
 import java.util.List;
@@ -69,13 +71,20 @@ public class NvidiaEmbeddingService implements EmbeddingService {
                 )
                 .build();
 
-        NvidiaEmbeddingResponse response = restClient
-                .post()
-                .uri("/embeddings")
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(requestBody)
-                .retrieve()
-                .body(NvidiaEmbeddingResponse.class);
+        NvidiaEmbeddingResponse response;
+
+        try {
+            response = restClient
+                    .post()
+                    .uri("/embeddings")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(requestBody)
+                    .retrieve()
+                    .body(NvidiaEmbeddingResponse.class);
+
+        } catch (RestClientException exception) {
+            throw new EmbeddingUnavailableException(exception);
+        }
 
         return parseEmbedding(response);
     }
@@ -88,9 +97,9 @@ public class NvidiaEmbeddingService implements EmbeddingService {
                 || response.data().isEmpty()
                 || response.data().getFirst().embedding() == null) {
 
-            throw new IllegalStateException(
+            throw new EmbeddingUnavailableException(new IllegalStateException(
                     "NVIDIA response does not contain an embedding"
-            );
+            ));
         }
 
         List<Double> values =

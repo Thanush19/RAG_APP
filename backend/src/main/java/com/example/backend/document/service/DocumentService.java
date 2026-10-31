@@ -1,21 +1,20 @@
 package com.example.backend.document.service;
 
 import com.example.backend.auth.entity.User;
+import com.example.backend.common.exception.ConflictException;
+import com.example.backend.common.exception.DocumentProcessingException;
 import com.example.backend.common.exception.EntityNotFoundException;
-import com.example.backend.document.dto.ChunkData;
 import com.example.backend.document.dto.DocumentResponse;
 import com.example.backend.document.dto.ExtractedPage;
 import com.example.backend.document.entity.Document;
-import com.example.backend.document.entity.DocumentChunk;
 import com.example.backend.document.entity.DocumentStatus;
-import com.example.backend.document.repository.DocumentChunkRepository;
 import com.example.backend.document.repository.DocumentRepository;
 import com.example.backend.rag.vector.VectorStoreService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
-import com.example.backend.rag.embedding.EmbeddingService;
 
 import java.io.InputStream;
 import java.time.OffsetDateTime;
@@ -40,9 +39,7 @@ public class DocumentService {
     private final DocumentRepository documentRepository;
     private final DocumentStorageService documentStorageService;
     private final PdfTextExtractionService pdfTextExtractionService;
-    private final DocumentChunkRepository documentChunkRepository;
-    private final ChunkingService chunkingService;
-    private final EmbeddingService embeddingService;
+    private final DocumentIngestionService documentIngestionService;
     private final VectorStoreService vectorStoreService;
 
     public List<DocumentResponse> getUserDocuments(UUID userId) {
@@ -59,14 +56,19 @@ public class DocumentService {
     ) {
         Document document = documentRepository
                 .findByIdAndUserId(documentId, userId)
-                .orElseThrow(() -> new IllegalArgumentException(
+                .orElseThrow(() -> new EntityNotFoundException(
                         "Document not found"
                 ));
 
         return DocumentResponse.from(document);
     }
 
-    @Transactional
+    // NOT_SUPPORTED: the class-level readOnly transaction must NOT wrap
+    // this orchestration — PROCESSING/READY/FAILED transitions and chunk
+    // rows must commit independently of ingestion outcome, otherwise a
+    // rollback leaves PostgreSQL unchanged while Qdrant (non-transactional)
+    // has already been mutated.
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public DocumentResponse uploadDocument(User user, MultipartFile file) {
         validateFile(file);
 
@@ -82,40 +84,73 @@ public class DocumentService {
 
         String storageKey = documentStorageService.upload(file);
 
-        try {
-            OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
 
-            Document document = Document.builder()
-                    .id(UUID.randomUUID())
-                    .user(user)
-                    .fileName(file.getOriginalFilename())
-                    .fileType(file.getContentType())
-                    .fileSize(file.getSize())
-                    .storageKey(storageKey)
-                    .status(DocumentStatus.UPLOADED)
-                    .createdAt(now)
-                    .updatedAt(now)
-                    .build();
+        Document document = Document.builder()
+                .id(UUID.randomUUID())
+                .user(user)
+                .fileName(file.getOriginalFilename())
+                .fileType(file.getContentType())
+                .fileSize(file.getSize())
+                .storageKey(storageKey)
+                .status(DocumentStatus.PROCESSING)
+                .createdAt(now)
+                .updatedAt(now)
+                .build();
 
-            Document savedDocument = documentRepository.save(document);
+        Document savedDocument = documentRepository.save(document);
 
-            // PDF → extraction → chunking → PostgreSQL
-            processDocumentChunks(
-                    user.getId(),
-                    savedDocument.getId()
+        runIngestionOrMarkFailed(
+                user.getId(),
+                savedDocument.getId(),
+                "upload"
+        );
+
+        return DocumentResponse.from(
+                documentRepository
+                        .findByIdAndUserId(savedDocument.getId(), user.getId())
+                        .orElseThrow(() -> new EntityNotFoundException(
+                                "Document not found"
+                        ))
+        );
+    }
+
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public DocumentResponse reprocessDocument(
+            UUID userId,
+            UUID documentId
+    ) {
+        Document document = documentRepository
+                .findByIdAndUserId(documentId, userId)
+                .orElseThrow(() -> new EntityNotFoundException(
+                        "Document not found"
+                ));
+
+        if (document.getStatus() == DocumentStatus.READY) {
+            throw new ConflictException(
+                    "Document is already processed"
             );
-
-            return DocumentResponse.from(savedDocument);
-
-        } catch (RuntimeException exception) {
-            try {
-                documentStorageService.delete(storageKey);
-            } catch (RuntimeException cleanupException) {
-                exception.addSuppressed(cleanupException);
-            }
-
-            throw exception;
         }
+
+        if (document.getStatus() == DocumentStatus.PROCESSING) {
+            throw new ConflictException(
+                    "Document is currently being processed"
+            );
+        }
+
+        document.setStatus(DocumentStatus.PROCESSING);
+        document.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        documentRepository.save(document);
+
+        runIngestionOrMarkFailed(userId, documentId, "reprocess");
+
+        return DocumentResponse.from(
+                documentRepository
+                        .findByIdAndUserId(documentId, userId)
+                        .orElseThrow(() -> new EntityNotFoundException(
+                                "Document not found"
+                        ))
+        );
     }
 
     @Transactional
@@ -138,37 +173,15 @@ public class DocumentService {
         } catch (Exception exception) {
             log.warn(
                     "Document {} deleted from PostgreSQL but Qdrant "
-                            + "vector cleanup failed; orphaned points remain "
-                            + "and are unreachable via retrieval",
+                            + "vector cleanup failed; orphaned points remain, "
+                            + "unreachable via retrieval, until the "
+                            + "orphan sweep removes them",
                     documentId,
                     exception
             );
         }
 
         return storageKey;
-    }
-
-    private void validateFile(MultipartFile file) {
-
-        if (file == null || file.isEmpty()) {
-            throw new IllegalArgumentException(
-                    "File must not be empty"
-            );
-        }
-
-        if (file.getSize() > MAX_FILE_SIZE) {
-            throw new IllegalArgumentException(
-                    "File size must not exceed 10 MB"
-            );
-        }
-
-        if (!"application/pdf".equalsIgnoreCase(
-                file.getContentType()
-        )) {
-            throw new IllegalArgumentException(
-                    "Only PDF files are supported"
-            );
-        }
     }
 
     public List<ExtractedPage> extractDocumentText(
@@ -199,74 +212,66 @@ public class DocumentService {
         );
     }
 
-    @Transactional
-    public List<DocumentChunk> processDocumentChunks(
+    private void runIngestionOrMarkFailed(
             UUID userId,
-            UUID documentId
+            UUID documentId,
+            String trigger
     ) {
-        Document document = documentRepository
-                .findByIdAndUserId(documentId, userId)
-                .orElseThrow(() -> new EntityNotFoundException(
-                        "Document not found"
-                ));
+        try {
+            documentIngestionService.ingest(userId, documentId);
 
-        // 1. Extract text from PDF
-        List<ExtractedPage> pages =
-                pdfTextExtractionService.extract(document);
+        } catch (RuntimeException exception) {
 
-        // 2. Split extracted text into chunks
-        List<ChunkData> chunkData =
-                chunkingService.chunk(pages);
+            // The Cloudinary object is intentionally kept: reprocess
+            // needs the original PDF to retry ingestion.
+            markFailed(documentId);
 
-        OffsetDateTime now =
-                OffsetDateTime.now(ZoneOffset.UTC);
-
-        List<DocumentChunk> chunks = new java.util.ArrayList<>();
-
-        for (int i = 0; i < chunkData.size(); i++) {
-
-            ChunkData data = chunkData.get(i);
-
-            // 3. Create PostgreSQL chunk
-            DocumentChunk chunk = DocumentChunk.builder()
-                    .id(UUID.randomUUID())
-                    .document(document)
-                    .chunkIndex(i)
-                    .pageNumber(data.pageNumber())
-                    .text(data.text())
-                    .createdAt(now)
-                    .build();
-
-            // 4. Persist chunk first so PostgreSQL owns the metadata
-            DocumentChunk savedChunk =
-                    documentChunkRepository.save(chunk);
-
-            // 5. Generate embedding
-            float[] embedding =
-                    embeddingService.embedPassage(data.text());
-
-            log.debug(
-                    "Generated embedding for chunk {} of document {} with dimension {}",
-                    i,
-                    documentId,
-                    embedding.length
+            throw new DocumentProcessingException(
+                    "Document stored and marked FAILED during " + trigger
+                            + "; retry via POST /api/v1/documents/"
+                            + documentId + "/reprocess",
+                    exception
             );
+        }
+    }
 
-            // 6. Store vector in Qdrant
-            vectorStoreService.storeChunk(
-                    userId,
+    private void markFailed(UUID documentId) {
+        try {
+            documentRepository.findById(documentId).ifPresent(document -> {
+                document.setStatus(DocumentStatus.FAILED);
+                document.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
+                documentRepository.save(document);
+            });
+
+        } catch (RuntimeException statusException) {
+            log.error(
+                    "Failed to mark document {} as FAILED",
                     documentId,
-                    savedChunk.getId(),
-                    data.pageNumber(),
-                    embedding
+                    statusException
             );
+        }
+    }
 
-            // 7. Keep the Qdrant point ID in PostgreSQL
-            savedChunk.setQdrantPointId(savedChunk.getId());
+    private void validateFile(MultipartFile file) {
 
-            chunks.add(savedChunk);
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "File must not be empty"
+            );
         }
 
-        return chunks;
+        if (file.getSize() > MAX_FILE_SIZE) {
+            throw new IllegalArgumentException(
+                    "File size must not exceed 10 MB"
+            );
+        }
+
+        if (!"application/pdf".equalsIgnoreCase(
+                file.getContentType()
+        )) {
+            throw new IllegalArgumentException(
+                    "Only PDF files are supported"
+            );
+        }
     }
 }

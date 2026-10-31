@@ -1,5 +1,7 @@
 package com.example.backend;
 
+import com.example.backend.document.entity.DocumentChunk;
+import com.example.backend.document.repository.DocumentChunkRepository;
 import com.example.backend.rag.ask.RagAnswer;
 import com.example.backend.rag.ask.RagService;
 import com.example.backend.rag.ask.RagSource;
@@ -23,6 +25,9 @@ class RagServiceTest {
 
     @Autowired
     private RagService ragService;
+
+    @Autowired
+    private DocumentChunkRepository documentChunkRepository;
 
     @Test
     void shouldAnswerGroundedInRealDocument() {
@@ -71,9 +76,15 @@ class RagServiceTest {
                 .map(RagSource::getChunkId)
                 .toList();
 
-        assertThat(chunkIds).containsExactlyInAnyOrder(
-                UUID.fromString("84382c00-d17a-4dad-b6b0-7e8f3bd38d5a"),
-                UUID.fromString("87e700e7-6fd0-4c7d-b5c0-b15f49efc359")
-        );
+        // Dynamic expectation: re-ingestion recreates chunks with new
+        // IDs, so cite-set must equal the document's current rows.
+        List<UUID> expectedChunkIds = documentChunkRepository
+                .findAllByDocumentId(REAL_DOCUMENT_ID)
+                .stream()
+                .map(DocumentChunk::getId)
+                .toList();
+
+        assertThat(expectedChunkIds).isNotEmpty();
+        assertThat(chunkIds).containsExactlyInAnyOrderElementsOf(expectedChunkIds);
     }
 }

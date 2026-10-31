@@ -25,8 +25,23 @@ public class RagService {
             String question,
             int topK
     ) {
+        return ask(userId, question, topK, null);
+    }
+
+    public RagAnswer ask(
+            UUID userId,
+            String question,
+            int topK,
+            Float minScore
+    ) {
         List<RetrievedChunk> chunks =
-                retrievalService.retrieve(userId, question, topK);
+                retrievalService.retrieve(
+                        userId,
+                        question,
+                        topK,
+                        null,
+                        minScore
+                );
 
         if (chunks.isEmpty()) {
             return RagAnswer.builder()

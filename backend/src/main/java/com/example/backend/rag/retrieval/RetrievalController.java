@@ -42,7 +42,9 @@ public class RetrievalController {
                                 retrievalService.retrieve(
                                         userId,
                                         request.getQuery(),
-                                        topK
+                                        topK,
+                                        request.getDocumentId(),
+                                        request.getMinScore()
                                 )
                         )
                         .build()

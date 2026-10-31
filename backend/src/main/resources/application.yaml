@@ -62,9 +62,15 @@ app:
       embedding-model: nvidia/nemotron-3.5-embed-1b
       chat-model: openai/gpt-oss-20b
       chat-max-tokens: 2048
+      connect-timeout-seconds: 10
+      read-timeout-seconds: 120
 
   vector:
     qdrant:
       url: https://a0749dec-d81e-4dc2-830a-fdb83943a05e.us-west-2-0.aws.cloud.qdrant.io
       api-key: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIiwic3ViamVjdCI6ImFwaS1rZXk6OWMxZGE0MGMtNDk4Ni00MDczLWI2MjgtOWE4OTdmMDU3MDBhIn0.6FJSLii5hpWPFT1IB2qlAt2pST5I22uY1lO6PNhOSM8
       collection-name: document_chunks
+      timeout-seconds: 30
+      orphan-sweep:
+        enabled: true
+        interval-millis: 3600000

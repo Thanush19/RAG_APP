@@ -27,10 +27,31 @@ public class RetrievalService {
             String query,
             int topK
     ) {
+        return retrieve(userId, query, topK, null, null);
+    }
+
+    public List<RetrievedChunk> retrieve(
+            UUID userId,
+            String query,
+            int topK,
+            UUID documentId,
+            Float minScore
+    ) {
         float[] queryEmbedding = embeddingService.embedQuery(query);
 
         List<VectorMatch> matches =
-                vectorStoreService.searchSimilar(userId, queryEmbedding, topK);
+                vectorStoreService.searchSimilar(
+                        userId,
+                        queryEmbedding,
+                        topK,
+                        documentId
+                );
+
+        if (minScore != null) {
+            matches = matches.stream()
+                    .filter(match -> match.getScore() >= minScore)
+                    .toList();
+        }
 
         if (matches.isEmpty()) {
             return List.of();

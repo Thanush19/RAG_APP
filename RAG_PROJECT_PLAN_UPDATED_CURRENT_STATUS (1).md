@@ -875,10 +875,10 @@ Potential later improvements:
 
 ### Retrieval quality
 
-- top-K tuning
-- similarity threshold
+- top-K tuning ✔
+- similarity threshold ✔ (`minScore`, section 21.4)
 - metadata filtering
-- document-level filtering
+- document-level filtering ✔ (`documentId` filter, section 21.4)
 - chunk-size tuning
 - overlap tuning
 - optional reranking
@@ -886,18 +886,18 @@ Potential later improvements:
 ### RAG response quality
 
 - context limits
-- prompt hardening
-- citation/source references
+- prompt hardening ✔ (section 21 + `ContextBuilderTest`)
+- citation/source references ✔ (section 14)
 - hallucination reduction
-- "answer only from provided context" behavior
+- "answer only from provided context" behavior ✔ (section 14 + 21)
 
 ### Production hardening
 
-- failure handling between PostgreSQL and Qdrant
-- retry/idempotency strategy
-- cleanup of orphaned vectors
-- document deletion → Qdrant deletion
-- ingestion status tracking
+- failure handling between PostgreSQL and Qdrant ✔ (section 21.3)
+- retry/idempotency strategy ✔ (section 21.3)
+- cleanup of orphaned vectors ✔ (orphan sweep, section 21.3)
+- document deletion → Qdrant deletion ✔ (section 17)
+- ingestion status tracking ✔ (section 21.2)
 - observability
 - metrics
 - structured logging
@@ -937,6 +937,10 @@ PostgreSQL transaction rolls back
 For the current project stage, do not over-engineer this.
 
 Once basic RAG works, introduce a simple, production-explainable consistency/retry strategy.
+
+> RESOLVED (section 21.3): idempotent re-ingestion (pre-clean +
+> chunkId-keyed upserts) + write retry + scheduled orphan sweep. No
+> distributed transaction, no outbox.
 
 ---
 
@@ -1018,23 +1022,34 @@ BASIC RAG IS COMPLETE AND VERIFIED:
 - retrieval + `POST /api/v1/search` (section 10) ✔
 - generation + `POST /api/v1/rag/ask` (section 14) ✔
 - deletion removes Qdrant points (section 17) ✔
+- prompt-injection hardening in `ContextBuilder` (section 21 + tests) ✔
+- production-hardening batch — typed errors/503 + timeouts,
+  PROCESSING/READY/FAILED + reprocess, idempotent ingestion +
+  orphan sweep, minScore + document-scoped search (ALL of section 19's
+  old 4-item roadmap) ✔ → full record in section 21.
 
-Next candidates, in recommended order (all from section 15 — pick one,
-don't batch):
+Current live state (as of 2026-10-31): the real test document
+`00109296-ee93-491b-810c-42c395dbcaf4` is status READY with chunks
+`f50768ae-…e1ab` / `573f998c-…4fc1` (see incident 21.6). Tests that
+assert against it must stay dynamic (derive expectations from
+`DocumentChunkRepository.findAllByDocumentId`).
 
-1. **Production hardening of RAG errors**: LLM/Qdrant/NVIDIA outages
-   currently surface as 500 via `IllegalStateException`; consider typed
-   exceptions + mapping in `GlobalExceptionHandler` and timeout config
-   on the NVIDIA RestClient.
-2. **Ingestion status**: `DocumentStatus` exists — expose
-   processing/failed states and make upload survive embedding/Qdrant
-   failure (currently the whole upload path is one flow).
-3. **PostgreSQL↔Qdrant consistency strategy** (section 16) — retry/
-   idempotency + orphan sweep.
-4. Retrieval quality: similarity threshold, document-scoped search
-   (`documentId` filter — index already exists), reranking.
+Remaining candidates, in recommended order (all from section 15 — pick
+one, don't batch):
 
-Follow section 20 coding conventions while doing it.
+1. **Observability**: structured request/trace logging around the
+   RAG path (retrieval latency, LLM token usage), maybe actuator
+   metrics for upstream 503s and sweep outcomes.
+2. **Retrieval quality further**: optional reranking, chunk-size/
+   overlap tuning, hybrid keyword+vector search.
+3. **Async ingestion**: upload currently blocks on extraction +
+   embedding + Qdrant; move `DocumentIngestionService` onto a task
+   executor/queue and expose status polling.
+4. **Auth/scope polish**: per-user rate limits on
+   `/api/v1/rag/ask`, request-size caps aligned with model context.
+
+Follow section 20 coding conventions (especially 20.3 transaction
+boundaries) while doing it.
 
 ---
 
@@ -1096,3 +1111,160 @@ them; when touching one for a feature, convert it to Lombok then):
   RestClient converter at runtime (section 14.4).
 - Cosine scores may be negative/near-zero; assert ORDER and [-1, 1]
   bounds in tests, never `score > 0` (section 14.6).
+
+## 20.3 Transaction boundaries (learned the hard way — see section 21)
+
+- NEVER let a class-level `@Transactional(readOnly = true)` wrap a
+  method that orchestrates external-system writes (upload/reprocess).
+  A readOnly transaction silently makes the whole orchestration one
+  rollback-able PG transaction while non-transactional Qdrant/NVIDIA
+  calls still take effect — status writes vanish and vectors orphan.
+  Such methods must declare
+  `@Transactional(propagation = Propagation.NOT_SUPPORTED)`.
+- In PG, writes to the same table that must land in a specific order
+  (delete-then-insert on `(document_id, chunk_index)`) require a
+  `@Modifying` bulk JPQL delete. A derived `deleteByDocumentId` queues
+  the deletes in the persistence context and Hibernate flushes them
+  AFTER the new inserts → duplicate-key violation.
+
+---
+
+# 21. PRODUCTION HARDENING BATCH — COMPLETE (ERROR HANDLING, STATUS, CONSISTENCY, RETRIEVAL QUALITY)
+
+Four roadmap items implemented and verified in one pass. Section 16's
+"address later" consistency problem now has a deliberate, simple,
+interview-explainable answer.
+
+## 21.1 Typed upstream errors + timeouts → 503
+
+- New `common/exception/UpstreamServiceException` (abstract) with
+  subclasses `LlmUnavailableException`, `EmbeddingUnavailableException`,
+  `VectorStoreUnavailableException`, plus `DocumentProcessingException`.
+- `GlobalExceptionHandler`: `UpstreamServiceException` → HTTP 503
+  `"UPSTREAM_UNAVAILABLE"` (WARN + requestId MDC);
+  `DocumentProcessingException` → HTTP 500
+  `"DOCUMENT_PROCESSING_FAILED"`.
+- NVIDIA RestClient timeouts via `RestClientConfig`
+  (`SimpleClientHttpRequestFactory`):
+  `app.ai.nvidia.connect-timeout-seconds: 10`,
+  `app.ai.nvidia.read-timeout-seconds: 120`.
+- Qdrant gRPC deadlines: every `searchAsync`/`upsertAsync`/`deleteAsync`
+  call passes `Duration.ofSeconds(app.vector.qdrant.timeout-seconds: 30)`
+  and awaits with `get(timeoutSeconds + 5)` — no unbounded blocking.
+- `NvidiaLlmClient`/`NvidiaEmbeddingService` wrap `RestClientException`
+  into the typed exceptions; Qdrant write/delete paths retry
+  (3 attempts, 300ms exponential backoff) then throw
+  `VectorStoreUnavailableException`. Search intentionally does NOT
+  retry (user-facing latency).
+
+## 21.2 Ingestion status + reprocess endpoint
+
+- `DocumentStatus` UPLOADED/PROCESSING/READY/FAILED now actually used.
+- `POST /api/v1/documents/upload`: saves the document as PROCESSING,
+  then runs ingestion OUTSIDE any transaction
+  (`Propagation.NOT_SUPPORTED` — see 20.3). On any failure the PG
+  document row and Cloudinary file are KEPT, row is marked FAILED, and
+  the API returns 500 `DOCUMENT_PROCESSING_FAILED` pointing at:
+- `POST /api/v1/documents/{documentId}/reprocess` — the recovery path:
+  - READY → `ConflictException` ("already processed")
+  - foreign/nonexistent → `EntityNotFoundException`
+  - otherwise: set PROCESSING → ingest → set READY.
+  Ingestion is idempotent, so reprocess is always safe (21.3).
+- Ingestion logic moved out of `DocumentService` into
+  `document/service/DocumentIngestionService` (single `@Transactional`
+  method: pre-clean → extract → chunk → save/embed/store per chunk →
+  READY).
+
+## 21.3 PostgreSQL↔Qdrant consistency (answers section 16)
+
+Strategy chosen: **idempotent re-ingestion + scheduled orphan sweep**
+— no distributed transaction, no outbox. Explicit failure semantics:
+
+- Pre-clean first: reprocess deletes ALL of the document's PG chunks
+  (`@Modifying` bulk JPQL — see 20.3) and its Qdrant points
+  (`deleteDocumentVectors`) before inserting, so partial or crashed
+  ingestion is healed by replay. Upserts are keyed on
+  `chunkId == pointId` so re-ingestion is naturally idempotent too.
+- Write retry: `storeChunk`/`deleteDocumentVectors` retry
+  (3 attempts / backoff) before surfacing 503.
+- Orphan sweep: `QdrantOrphanSweepService` (`@Scheduled`, enabled by
+  `app.vector.qdrant.orphan-sweep.enabled: true`, runs 5 min after boot
+  then hourly): `VectorStoreService.scanStoredDocumentRefs()` scrolls
+  the collection (256/page, dedup `documentId → userId`), and any
+  documentId with no PG row gets `deleteDocumentVectors`. Whole sweep
+  is try/catch — a failure logs ERROR and never affects serving.
+- Deletion (section 17) unchanged: PG first, Qdrant best-effort;
+  leftovers are unreachable and get swept.
+- Known accepted gap: a document left FAILED whose vectors were partly
+  written stays reachable ONLY until reprocess/sweep runs; retrieval
+  joins PG ownership rows so no cross-user leak is possible.
+
+## 21.4 Retrieval quality knobs
+
+- `POST /api/v1/search` and `POST /api/v1/rag/ask` accept optional:
+  - `documentId` (UUID) → Qdrant filter gains
+    `must documentId keyword match` (index pre-created in
+    `QdrantCollectionInitializer`).
+  - `minScore` (float, validated [-1.0, 1.0]) → applied to raw cosine
+    scores AFTER search, BEFORE the PG ownership lookup.
+- `VectorStoreService.searchSimilar` has a 4-arg overload
+  (userId, embedding, topK, documentId); `RetrievalService.retrieve`
+  a 5-arg overload (…, documentId, minScore); 3-arg forms delegate with
+  nulls so existing callers/tests are untouched.
+
+## 21.5 New config keys (application.yaml)
+
+```yaml
+app:
+  ai:
+    nvidia:
+      connect-timeout-seconds: 10
+      read-timeout-seconds: 120
+      chat-max-tokens: 2048
+  vector:
+    qdrant:
+      timeout-seconds: 30
+      orphan-sweep:
+        enabled: true
+        initial-delay-millis: 300000   # default
+        interval-millis: 3600000       # default
+```
+
+## 21.6 The readOnly-transaction incident (live-data near-loss, recovered)
+
+Symptom: after first wiring reprocess, the live test suite went 6/23
+red; the real indexed document still existed but retrieval returned
+nothing and status was stuck at UPLOADED with the OLD chunk rows.
+Root causes:
+
+1. `DocumentService` class-level `@Transactional(readOnly = true)`
+   wrapped `uploadDocument`/`reprocessDocument`: PROCESSING/READY
+   writes were silently discarded, and the whole multi-system
+   orchestration ran inside one rollback-able transaction while the
+   non-transactional Qdrant deletes/upserts persisted.
+2. `IngestionConsistencyTest.shouldRejectReprocessOfReadyDocument`
+   assumed the real doc was READY; it was legacy UPLOADED, so the
+   guard passed and the test REPROCESSes the real document — with
+   derived-delete flush ordering (20.3) that left it inconsistent.
+
+Recovery: fixed propagation + bulk JPQL delete, then re-ran reprocess
+on the real document — ingestion succeeded, status READY, 2 new chunks
+(`f50768ae-2368-4e74-b68e-60f18950e1ab`,
+`573f998c-30ac-4bbb-9b9f-e004cc6d4fc1`) with the same scores as before.
+`RagServiceTest.shouldOnlyCiteOwnedChunks` was made dynamic
+(`findAllByDocumentId`) so future re-ingestions can't break it.
+
+Rules recorded in 20.3. Also: never judge a gradle run by a piped
+command's exit code (`| tail` masks failures) — check
+`BUILD SUCCESSFUL` / the XML in `build/test-results/test/`.
+
+## 21.7 Verification
+
+- Full `./gradlew test` suite green (live Neon + Qdrant Cloud + NVIDIA),
+  including `ContextBuilderTest` prompt-injection assertions,
+  `RetrievalServiceTest` (documentId scoping + minScore),
+  `IngestionConsistencyTest` (reprocess guards, scan finds the real
+  document, sweep is non-destructive), `DocumentVectorDeletionTest`.
+- Temporary diagnostic tests (`StateDumpTest`,
+  `ReprocessRecoveryTest`) deleted after recovery.
+

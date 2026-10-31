@@ -39,7 +39,8 @@ public class RagController {
         RagAnswer answer = ragService.ask(
                 userId,
                 request.getQuestion(),
-                topK
+                topK,
+                request.getMinScore()
         );
 
         return ResponseEntity.ok(

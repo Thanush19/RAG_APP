@@ -19,8 +19,17 @@ public interface VectorStoreService {
             int topK
     );
 
+    List<VectorMatch> searchSimilar(
+            UUID userId,
+            float[] queryEmbedding,
+            int topK,
+            UUID documentIdFilter
+    );
+
     void deleteDocumentVectors(
             UUID userId,
             UUID documentId
     );
+
+    List<VectorStoreDocumentRef> scanStoredDocumentRefs();
 }
