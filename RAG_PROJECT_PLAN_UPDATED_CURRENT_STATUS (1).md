@@ -1023,6 +1023,7 @@ BASIC RAG IS COMPLETE AND VERIFIED:
 - generation + `POST /api/v1/rag/ask` (section 14) ✔
 - deletion removes Qdrant points (section 17) ✔
 - prompt-injection hardening in `ContextBuilder` (section 21 + tests) ✔
+- SSE streaming ask `POST /api/v1/rag/ask/stream` (section 22) ✔
 - production-hardening batch — typed errors/503 + timeouts,
   PROCESSING/READY/FAILED + reprocess, idempotent ingestion +
   orphan sweep, minScore + document-scoped search (ALL of section 19's
@@ -1221,6 +1222,7 @@ app:
       connect-timeout-seconds: 10
       read-timeout-seconds: 120
       chat-max-tokens: 2048
+      stream-timeout-seconds: 180   # SSE, section 22
   vector:
     qdrant:
       timeout-seconds: 30
@@ -1267,4 +1269,77 @@ command's exit code (`| tail` masks failures) — check
   document, sweep is non-destructive), `DocumentVectorDeletionTest`.
 - Temporary diagnostic tests (`StateDumpTest`,
   `ReprocessRecoveryTest`) deleted after recovery.
+
+Note: in the 2026-10-31 batch run,
+`RagServiceTest.shouldAnswerGroundedInRealDocument` flaked once with
+`SocketTimeoutException: Read timed out` at the 120s NVIDIA read
+timeout (gateway slowness behind the reasoning model) — the new typed
+error path mapped it correctly. Treat single LLM-timeout failures as
+transient; re-run before investigating code.
+
+---
+
+# 22. SSE STREAMING FOR RAG ASK — COMPLETE
+
+`POST /api/v1/rag/ask/stream` delivers the same pipeline as `/ask`
+(retrieval → prompt guards → generation) but token-by-token over
+Server-Sent Events.
+
+## 22.1 Event protocol
+
+Request body: identical `AskRequest` (`question`, `topK`, `minScore`).
+Response: `text/event-stream`, named events, JSON data payloads:
+
+```text
+event: sources   data: [RagSource...]        (fires BEFORE generation)
+event: token     data: {"t": "..."}          (N times; fallback answer
+                                             is one token if no context)
+event: done      data: {"answer": "<full>"}
+event: error     data: {"code","message"}    (only if something failed
+                                             after the stream opened)
+```
+
+Because HTTP status is already 200 once streaming starts, mid-stream
+failures CANNOT surface as 503 — they are `error` events with
+`UPSTREAM_UNAVAILABLE` (typed `UpstreamServiceException`) or
+`INTERNAL_ERROR`.
+
+## 22.2 Implementation record
+
+- `LlmClient.chatStream(systemPrompt, userPrompt, Consumer<String>)`
+  added; returns accumulated full text.
+- `NvidiaLlmClient.chatStream`: same guards/params as `chat()` but
+  `"stream": true` and POSTs with the **JDK `HttpClient`** (not the
+  shared `RestClient`): `SimpleClientHttpRequestFactory` applies its
+  read timeout to the FIRST packet only, so a long token stream would
+  hang or cut early. Whole-exchange bound =
+  `read-timeout-seconds + stream-timeout-seconds` (new key, default
+  180). Parses upstream SSE lines `data: {...}`, takes
+  `choices[0].delta.content` (Jackson 3, `tools.jackson`), skips
+  `data: [DONE]`; non-200 → `LlmUnavailableException` (stream opened
+  only on 200).
+- `RagService.askStream(userId, question, topK, minScore, listener)`
+  with inner `RagService.RagStreamListener`
+  (onSources/onToken/onDone/onError, all default no-ops). Same
+  short-circuit: no chunks → sources emitted, fallback answer as a
+  single token, no LLM call. Retrieval + prompt building unchanged,
+  so section 21/14 injection guards apply verbatim.
+- `RagController.askStream`: builds `SseEmitter(300_000ms)`, runs the
+  orchestration on `applicationTaskExecutor` (boot auto-configured;
+  servlet thread returns immediately), serializes events via the
+  Jackson 3 `ObjectMapper` bean. Send failure (client disconnect) →
+  `completeWithError`, no retry.
+- `rag/ask/dto/StreamErrorPayload` — Lombok DTO per 20.1.
+- No new auth rules needed: endpoint sits under the existing
+  authenticated `/api/v1/rag/**` chain.
+
+## 22.3 Tests
+
+- `RagStreamServiceTest` (live): grounded question → sources all on the
+  real document, `tokens.size() > 1` (proves true streaming), done
+  answer non-blank, no error; random user → exactly one fallback token,
+  no LLM call.
+- Manual check with curl:
+  `curl -N -X POST /api/v1/rag/ask/stream -H "Authorization: Bearer <jwt>" -H "Content-Type: application/json" -d '{"question":"What is this document about?"}`
+
 

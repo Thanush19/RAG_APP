@@ -64,6 +64,7 @@ app:
       chat-max-tokens: 2048
       connect-timeout-seconds: 10
       read-timeout-seconds: 120
+      stream-timeout-seconds: 180
 
   vector:
     qdrant:
