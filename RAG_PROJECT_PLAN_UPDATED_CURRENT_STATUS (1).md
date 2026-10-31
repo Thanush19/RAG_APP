@@ -1274,8 +1274,9 @@ Note: in the 2026-10-31 batch run,
 `RagServiceTest.shouldAnswerGroundedInRealDocument` flaked once with
 `SocketTimeoutException: Read timed out` at the 120s NVIDIA read
 timeout (gateway slowness behind the reasoning model) — the new typed
-error path mapped it correctly. Treat single LLM-timeout failures as
-transient; re-run before investigating code.
+error path mapped it correctly. It passed on the next full run; treat
+single LLM-timeout failures as transient, re-run before investigating
+code. (Final state: sections 21 AND 22 verified together, 25/25 green.)
 
 ---
 
@@ -1338,7 +1339,9 @@ failures CANNOT surface as 503 — they are `error` events with
 - `RagStreamServiceTest` (live): grounded question → sources all on the
   real document, `tokens.size() > 1` (proves true streaming), done
   answer non-blank, no error; random user → exactly one fallback token,
-  no LLM call.
+  no LLM call. VERIFIED: final 2026-10-31 run 25/25 green
+  (`BUILD SUCCESSFUL`); the earlier `RagServiceTest` timeout flake also
+  passed on re-run, confirming it was transient gateway slowness.
 - Manual check with curl:
   `curl -N -X POST /api/v1/rag/ask/stream -H "Authorization: Bearer <jwt>" -H "Content-Type: application/json" -d '{"question":"What is this document about?"}`
 
