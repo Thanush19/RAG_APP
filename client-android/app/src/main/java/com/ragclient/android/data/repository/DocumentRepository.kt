@@ -9,6 +9,7 @@ import com.ragclient.android.data.upload.FileProgressRequestBody
 import com.ragclient.android.domain.model.DocumentStatus
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import okhttp3.MediaType.Companion.toMediaType
@@ -103,6 +104,11 @@ class DocumentRepository @Inject constructor(
         errorMapper.describe(error, fallback).message
 
     private fun failed(error: Throwable, fallback: String): LibraryOutcome {
+        // `runCatching` also catches CancellationException. Swallowing it turns
+        // a cancelled upload into an ordinary retryable failure, so the worker
+        // never reaches its cancel handling and the ongoing notification is
+        // stranded for good. Let cancellation travel instead.
+        if (error is CancellationException) throw error
         val failure = errorMapper.describe(error, fallback)
         return LibraryOutcome.Failed(failure.message, failure.code)
     }

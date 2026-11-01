@@ -1187,3 +1187,63 @@ custom border, no hoisted focus state.
 - Still outstanding: §14's G5 upload + notification smoke test — the device is
   unlocked now, so nothing blocks it any more.
 
+# 19. STREAMING CARET BLINKS INSTEAD OF SITTING THERE (2026-11-01)
+
+## 19.1 Request
+
+"in chat screen, when i ask for something, it shwoing things and some green
+line, make it as blink, so that user experience will be better."
+
+The "green line" is the `▍` block the streaming row appended to the answer. It
+was a static `Text` in accent emerald, so it read as a rendering artefact rather
+than as "the model is still writing".
+
+## 19.2 Implementation — `feature/chat/ChatScreen.kt`
+
+`StreamingRow` now calls a private `BlinkingCaret()` composable instead of the
+static `Text(" ▍", color = AppColors.Accent)`:
+
+- `rememberInfiniteTransition` + `animateFloat(0f → 1f)` with
+  `infiniteRepeatable(tween(CaretCycleMillis, easing = LinearEasing))`.
+- Hard on/off via `color = AppColors.Accent.copy(alpha = if (phase < 0.5f) 1f else 0f)`
+  — a fade would look like a loading shimmer; text editors snap.
+- `CaretCycleMillis = 1_060` → 530 ms on / 530 ms off, the interval the platform
+  text cursor uses, so the two carets (this one and the composer's) feel related.
+- **Why its own composable:** the animation's per-frame state read happens inside
+  `BlinkingCaret`, so only that `Text` recomposes ~60×/s. Left in `StreamingRow`
+  it would recompose the whole answer paragraph — including the markdown-ish text
+  — on every frame of the blink while tokens are also arriving.
+- The caret only exists while `StreamingRow` is on screen; when the stream
+  finishes the row is replaced by the settled message, so the blink stops by
+  itself. No manual cleanup, no coroutine to cancel.
+
+## 19.3 Verification (device `RZCXB0FWFNW`, 2026-11-01)
+
+Burst-captured 22 `screencap` frames (~250 ms apart) while an answer streamed,
+then analysed them with `CaretDiff.java` (JDK 21 ImageIO, chat scratch dir — no
+ImageMagick/Python here): count pixels within tolerance of `#16A37A` and diff
+each consecutive pair, restricted to `y < 2050` so the composer band is excluded.
+
+- Accent count alternates **882 ↔ 0** across the frames; the diff for every
+  toggle is one small box, `293,1954 → 307,2018` (≈15×65 px = the block glyph
+  plus antialiasing, 975 changed px).
+- Frames where text actually arrived are the only ones with a wide diff box
+  (`f09`, `f13`, `f19`); between token bursts the rest of the answer is
+  pixel-identical, which is the proof that the blink is not recomposing the
+  paragraph.
+- Crops `verified_caret_on.png` / `verified_caret_off.png` show the block after
+  the word "inking" in one frame and nothing in the other.
+
+**Trap worth remembering:** the first measurement run appeared to prove the
+blink but was sampling the *composer's* own blinking text cursor (a 5×85 px bar
+at `x=84`), which is a different widget with a similar cadence. Two things fixed
+the experiment — restricting the pixel band to `y < 2050`, and reading the diff
+box coordinates instead of trusting the count alone. Always locate the thing you
+are measuring before measuring it.
+
+Side effect of the test session: pressing `KEYCODE_BACK` to dismiss the IME a
+second time (with no keyboard up) exits the app, and the installed package is
+**`com.ragclient.android.dev`** (the `.dev` applicationIdSuffix from §Phase A),
+so `am start -n com.ragclient.android/.MainActivity` fails with "Activity class
+does not exist" — use the `.dev` package name for adb launches.
+

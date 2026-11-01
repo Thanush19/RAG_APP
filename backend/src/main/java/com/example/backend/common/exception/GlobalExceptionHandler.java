@@ -1,6 +1,7 @@
 package com.example.backend.common.exception;
 
 import com.example.backend.auth.exception.InvalidCredentialsException;
+import com.example.backend.common.config.UploadSizeConfig;
 import com.example.backend.common.response.ApiErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -11,6 +12,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 import java.time.Instant;
 import java.util.List;
@@ -178,6 +180,30 @@ public class GlobalExceptionHandler {
                 HttpStatus.INTERNAL_SERVER_ERROR,
                 "DOCUMENT_PROCESSING_FAILED",
                 exception.getMessage(),
+                request,
+                List.of()
+        );
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ApiErrorResponse> handleUploadTooLarge(
+            MaxUploadSizeExceededException exception,
+            HttpServletRequest request
+    ) {
+
+        long limitMb = UploadSizeConfig.MAX_FILE_SIZE.toMegabytes();
+
+        log.warn(
+                "Rejected upload above the multipart cap. requestId={}, path={}, limitMb={}",
+                MDC.get("requestId"),
+                request.getRequestURI(),
+                limitMb
+        );
+
+        return buildResponse(
+                HttpStatus.CONTENT_TOO_LARGE,
+                "FILE_TOO_LARGE",
+                "That file is larger than the " + limitMb + " MB upload limit",
                 request,
                 List.of()
         );

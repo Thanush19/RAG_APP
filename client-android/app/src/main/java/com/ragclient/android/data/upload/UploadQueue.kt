@@ -16,8 +16,11 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 
 data class UploadJob(
     val workId: String,
@@ -32,20 +35,26 @@ data class UploadJob(
  */
 @Singleton
 class UploadQueue @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val notifier: UploadNotifier
 ) {
 
     private val workManager: WorkManager get() = WorkManager.getInstance(context)
 
-    fun enqueue(staged: File) {
-        val uploadKey = "${System.currentTimeMillis()}-${staged.name}"
+    suspend fun enqueue(staged: File) {
+        // Keyed on the staged file, not on "now": a timestamp makes every
+        // enqueue unique, so ExistingWorkPolicy.KEEP could never match
+        // anything and the dedupe reads as working when it cannot.
+        val uniqueName = staged.absolutePath
         val request = OneTimeWorkRequestBuilder<UploadWorker>()
             .addTag(UploadWorker.TAG)
+            // Mirrored as a tag because WorkInfo never exposes input data, and
+            // the pruning pass below needs to know which copies a live job owns.
+            .addTag(uniqueName)
             .setInputData(
                 workDataOf(
                     UploadWorker.KEY_FILE_PATH to staged.absolutePath,
-                    UploadWorker.KEY_FILE_NAME to staged.name,
-                    UploadWorker.KEY_UPLOAD_KEY to uploadKey
+                    UploadWorker.KEY_FILE_NAME to staged.name
                 )
             )
             .setConstraints(
@@ -61,13 +70,38 @@ class UploadQueue @Inject constructor(
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .build()
 
-        workManager.enqueueUniqueWork(uploadKey, ExistingWorkPolicy.KEEP, request)
+        workManager.enqueueUniqueWork(uniqueName, ExistingWorkPolicy.KEEP, request)
+        pruneOrphanStagedFiles()
     }
 
-    /** Cancel by id: WorkInfo no longer exposes inputData, but always has an id. */
+    /**
+     * Staged copies live in filesDir, which the system never trims, and a job
+     * cancelled while it is parked in retry backoff has no worker left to
+     * clean up after it. Every enqueue sweeps the directory, so an abandoned
+     * upload costs storage until the next one rather than forever.
+     */
+    private suspend fun pruneOrphanStagedFiles() = withContext(Dispatchers.IO) {
+        val owned = workManager.getWorkInfosByTagFlow(UploadWorker.TAG)
+            .first()
+            .filter { it.state in LIVE_STATES }
+            .flatMap { info -> info.tags }
+            .toSet()
+
+        File(context.filesDir, "uploads")
+            .listFiles()
+            .orEmpty()
+            .flatMap { batch -> batch.listFiles().orEmpty().toList() }
+            .filterNot { it.absolutePath in owned }
+            .forEach { staged -> staged.parentFile?.deleteRecursively() }
+    }
+
     fun cancel(workId: String) {
-        runCatching { UUID.fromString(workId) }
-            .onSuccess { workManager.cancelWorkById(it) }
+        val id = runCatching { UUID.fromString(workId) }.getOrNull() ?: return
+        // A job parked in retry backoff has no live worker left to clear its
+        // own ongoing row, so the queue dismisses it here. The row is keyed on
+        // the work id, which is the one handle the UI always has.
+        notifier.dismiss(workId)
+        workManager.cancelWorkById(id)
     }
 
     fun observe(): Flow<List<UploadJob>> =

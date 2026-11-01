@@ -1,0 +1,188 @@
+Starting a Gradle Daemon, 1 incompatible and 4 stopped Daemons could not be reused, use --status for details
+> Task :compileJava UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :resolveMainClassName UP-TO-DATE
+
+> Task :bootRun
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+
+ :: Spring Boot ::                (v4.1.1)
+
+2026-11-01T11:24:50.178+05:30  INFO 23880 --- [todo-backend] [           main] com.example.backend.BackendApplication   : Starting BackendApplication using Java 21.0.12.1 with PID 23880 (C:\Users\Thanush\projects\TODO\backend\build\classes\java\main started by Thanush in C:\Users\Thanush\projects\TODO\backend)
+2026-11-01T11:24:50.182+05:30 DEBUG 23880 --- [todo-backend] [           main] com.example.backend.BackendApplication   : Running with Spring Boot v4.1.1, Spring v7.0.9
+2026-11-01T11:24:50.182+05:30  INFO 23880 --- [todo-backend] [           main] com.example.backend.BackendApplication   : No active profile set, falling back to 1 default profile: "default"
+2026-11-01T11:24:51.064+05:30  INFO 23880 --- [todo-backend] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2026-11-01T11:24:51.133+05:30  INFO 23880 --- [todo-backend] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 59 ms. Found 4 JPA repository interfaces.
+2026-11-01T11:24:51.920+05:30  INFO 23880 --- [todo-backend] [           main] o.s.boot.tomcat.TomcatWebServer          : Tomcat initialized with port 8080 (http)
+2026-11-01T11:24:51.936+05:30  INFO 23880 --- [todo-backend] [           main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
+2026-11-01T11:24:51.936+05:30  INFO 23880 --- [todo-backend] [           main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/11.0.24]
+2026-11-01T11:24:52.004+05:30  INFO 23880 --- [todo-backend] [           main] b.w.c.s.WebApplicationContextInitializer : Root WebApplicationContext: initialization completed in 1773 ms
+2026-11-01T11:24:52.327+05:30  INFO 23880 --- [todo-backend] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...
+2026-11-01T11:24:54.410+05:30  INFO 23880 --- [todo-backend] [           main] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Added connection org.postgresql.jdbc.PgConnection@35af52dc
+2026-11-01T11:24:54.412+05:30  INFO 23880 --- [todo-backend] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
+2026-11-01T11:24:54.495+05:30  INFO 23880 --- [todo-backend] [           main] org.flywaydb.core.FlywayExecutor         : Database: jdbc:postgresql://ep-icy-fire-b3voipou-pooler.c-4.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require (PostgreSQL 18.6)
+2026-11-01T11:24:55.373+05:30  INFO 23880 --- [todo-backend] [           main] o.f.core.internal.command.DbValidate     : Successfully validated 13 migrations (execution time 00:00.277s)
+2026-11-01T11:24:56.090+05:30  INFO 23880 --- [todo-backend] [           main] o.f.core.internal.command.DbMigrate      : Current version of schema "public": 13
+2026-11-01T11:24:56.149+05:30  INFO 23880 --- [todo-backend] [           main] o.f.core.internal.command.DbMigrate      : Schema "public" is up to date. No migration necessary.
+2026-11-01T11:24:56.611+05:30  INFO 23880 --- [todo-backend] [           main] org.hibernate.orm.jpa                    : HHH008540: Processing PersistenceUnitInfo [name: default]
+2026-11-01T11:24:56.712+05:30  INFO 23880 --- [todo-backend] [           main] org.hibernate.orm.core                   : HHH000001: Hibernate ORM core version 7.4.5.Final
+2026-11-01T11:24:57.380+05:30  INFO 23880 --- [todo-backend] [           main] o.s.o.j.p.SpringPersistenceUnitInfo      : No LoadTimeWeaver setup: ignoring JPA class transformer
+2026-11-01T11:24:57.851+05:30  INFO 23880 --- [todo-backend] [           main] org.hibernate.orm.connections.pooling    : HHH10001005: Database info:
+	Database JDBC URL [jdbc:postgresql://ep-icy-fire-b3voipou-pooler.c-4.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require]
+	Database driver: PostgreSQL JDBC Driver
+	Database dialect: PostgreSQLDialect
+	Database version: 18.6
+	Default catalog/schema: neondb/public
+	Autocommit mode: undefined/unknown
+	Isolation level: READ_COMMITTED [default READ_COMMITTED]
+	JDBC fetch size: none
+	Pool: DataSourceConnectionProvider
+	Minimum pool size: undefined/unknown
+	Maximum pool size: undefined/unknown
+2026-11-01T11:24:59.166+05:30  INFO 23880 --- [todo-backend] [           main] org.hibernate.orm.core                   : HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2026-11-01T11:24:59.177+05:30  INFO 23880 --- [todo-backend] [           main] j.LocalContainerEntityManagerFactoryBean : Initialized JPA EntityManagerFactory for persistence unit 'default'
+2026-11-01T11:24:59.263+05:30  INFO 23880 --- [todo-backend] [           main] o.s.d.j.r.query.QueryEnhancerFactories   : Hibernate is in classpath; If applicable, HQL parser will be used.
+2026-11-01T11:24:59.557+05:30 DEBUG 23880 --- [todo-backend] [           main] c.e.b.c.s.JwtAuthenticationFilter        : Filter 'jwtAuthenticationFilter' configured for use
+2026-11-01T11:24:59.560+05:30 DEBUG 23880 --- [todo-backend] [           main] c.e.b.common.config.RequestIdFilter      : Filter 'requestIdFilter' configured for use
+2026-11-01T11:25:04.397+05:30  WARN 23880 --- [todo-backend] [           main] JpaBaseConfiguration$JpaWebConfiguration : spring.jpa.open-in-view is enabled by default. Therefore, database queries may be performed during view rendering. Explicitly configure spring.jpa.open-in-view to disable this warning
+2026-11-01T11:25:04.445+05:30  WARN 23880 --- [todo-backend] [           main] .s.a.UserDetailsServiceAutoConfiguration : 
+
+Using generated security password: 41863b66-df67-4082-a190-ec0c6a6f3120
+
+This generated password is for development use only. Your security configuration must be updated before running your application in production.
+
+2026-11-01T11:25:04.457+05:30  INFO 23880 --- [todo-backend] [           main] r$InitializeUserDetailsManagerConfigurer : Global AuthenticationManager configured with UserDetailsService bean with name inMemoryUserDetailsManager
+2026-11-01T11:25:05.209+05:30  INFO 23880 --- [todo-backend] [           main] o.s.b.a.e.web.EndpointLinksResolver      : Exposing 3 endpoints beneath base path '/actuator'
+2026-11-01T11:25:05.288+05:30  INFO 23880 --- [todo-backend] [           main] o.s.boot.tomcat.TomcatWebServer          : Tomcat started on port 8080 (http) with context path '/'
+2026-11-01T11:25:05.300+05:30  INFO 23880 --- [todo-backend] [           main] com.example.backend.BackendApplication   : Started BackendApplication in 15.643 seconds (process running for 16.11)
+2026-11-01T11:25:16.972+05:30  INFO 23880 --- [todo-backend] [nio-8080-exec-1] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring DispatcherServlet 'dispatcherServlet'
+2026-11-01T11:25:16.973+05:30  INFO 23880 --- [todo-backend] [nio-8080-exec-1] o.s.web.servlet.DispatcherServlet        : Initializing Servlet 'dispatcherServlet'
+2026-11-01T11:25:16.976+05:30  INFO 23880 --- [todo-backend] [nio-8080-exec-1] o.s.web.servlet.DispatcherServlet        : Completed initialization in 3 ms
+2026-11-01T11:27:11.924+05:30 DEBUG 23880 --- [todo-backend] [io-8080-exec-10] c.e.b.d.s.DocumentIngestionService       : Generated embedding for chunk 0 of document 083a0aff-d4ad-4039-86fe-fecb799f8bf6 with dimension 2048
+2026-11-01T11:27:12.365+05:30  INFO 23880 --- [todo-backend] [io-8080-exec-10] c.e.b.d.s.DocumentIngestionService       : Ingestion completed for document 083a0aff-d4ad-4039-86fe-fecb799f8bf6: 1 chunks
+2026-11-01T11:27:55.895+05:30  WARN 23880 --- [todo-backend] [nio-8080-exec-4] c.e.b.c.e.GlobalExceptionHandler         : Rejected request. requestId=5f624311-534e-45a1-bfec-063ceb6c457a, path=/api/v1/documents, reason=Storage limit exceeded. Maximum storage per user is 50 MB.
+2026-11-01T11:29:11.229+05:30  WARN 23880 --- [todo-backend] [nio-8080-exec-6] c.e.b.c.e.GlobalExceptionHandler         : Rejected request. requestId=5ea7eec7-102a-4f65-82a7-03fdad87593f, path=/api/v1/documents, reason=Storage limit exceeded. Maximum storage per user is 50 MB.
+2026-11-01T11:35:43.832+05:30 DEBUG 23880 --- [todo-backend] [nio-8080-exec-8] c.e.b.d.s.DocumentIngestionService       : Generated embedding for chunk 0 of document f67216a9-ebea-4d7d-9319-1fcb616938dd with dimension 2048
+2026-11-01T11:35:44.073+05:30  INFO 23880 --- [todo-backend] [nio-8080-exec-8] c.e.b.d.s.DocumentIngestionService       : Ingestion completed for document f67216a9-ebea-4d7d-9319-1fcb616938dd: 1 chunks
+2026-11-01T13:09:48.828+05:30  WARN 23880 --- [todo-backend] [ault-executor-6] io.grpc.internal.ManagedChannelImpl      : [Channel<1>: (a0749dec-d81e-4dc2-830a-fdb83943a05e.us-west-2-0.aws.cloud.qdrant.io:6334)] Failed to resolve name. status=Status{code=UNAVAILABLE, description=Unable to resolve host a0749dec-d81e-4dc2-830a-fdb83943a05e.us-west-2-0.aws.cloud.qdrant.io, cause=java.net.UnknownHostException: No such host is known (a0749dec-d81e-4dc2-830a-fdb83943a05e.us-west-2-0.aws.cloud.qdrant.io)
+	at java.base/java.net.Inet6AddressImpl.lookupAllHostAddr(Native Method)
+	at java.base/java.net.Inet6AddressImpl.lookupAllHostAddr(Inet6AddressImpl.java:52)
+	at java.base/java.net.InetAddress$PlatformResolver.lookupByName(InetAddress.java:1211)
+	at java.base/java.net.InetAddress.getAddressesFromNameService(InetAddress.java:1828)
+	at java.base/java.net.InetAddress$NameServiceAddresses.get(InetAddress.java:1139)
+	at java.base/java.net.InetAddress.getAllByName0(InetAddress.java:1818)
+	at java.base/java.net.InetAddress.getAllByName(InetAddress.java:1688)
+	at io.grpc.internal.DnsNameResolver$JdkAddressResolver.resolveAddress(DnsNameResolver.java:600)
+	at io.grpc.internal.DnsNameResolver.resolveAddresses(DnsNameResolver.java:213)
+	at io.grpc.internal.DnsNameResolver.doResolve(DnsNameResolver.java:267)
+	at io.grpc.internal.DnsNameResolver$Resolve.run(DnsNameResolver.java:302)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+}
+2026-11-01T13:09:50.283+05:30  WARN 23880 --- [todo-backend] [ault-executor-6] io.grpc.internal.ManagedChannelImpl      : [Channel<1>: (a0749dec-d81e-4dc2-830a-fdb83943a05e.us-west-2-0.aws.cloud.qdrant.io:6334)] Failed to resolve name. status=Status{code=UNAVAILABLE, description=Unable to resolve host a0749dec-d81e-4dc2-830a-fdb83943a05e.us-west-2-0.aws.cloud.qdrant.io, cause=java.net.UnknownHostException: a0749dec-d81e-4dc2-830a-fdb83943a05e.us-west-2-0.aws.cloud.qdrant.io
+	at java.base/java.net.InetAddress$CachedLookup.get(InetAddress.java:988)
+	at java.base/java.net.InetAddress.getAllByName0(InetAddress.java:1818)
+	at java.base/java.net.InetAddress.getAllByName(InetAddress.java:1688)
+	at io.grpc.internal.DnsNameResolver$JdkAddressResolver.resolveAddress(DnsNameResolver.java:600)
+	at io.grpc.internal.DnsNameResolver.resolveAddresses(DnsNameResolver.java:213)
+	at io.grpc.internal.DnsNameResolver.doResolve(DnsNameResolver.java:267)
+	at io.grpc.internal.DnsNameResolver$Resolve.run(DnsNameResolver.java:302)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+}
+2026-11-01T13:09:51.699+05:30  WARN 23880 --- [todo-backend] [ault-executor-6] io.grpc.internal.ManagedChannelImpl      : [Channel<1>: (a0749dec-d81e-4dc2-830a-fdb83943a05e.us-west-2-0.aws.cloud.qdrant.io:6334)] Failed to resolve name. status=Status{code=UNAVAILABLE, description=Unable to resolve host a0749dec-d81e-4dc2-830a-fdb83943a05e.us-west-2-0.aws.cloud.qdrant.io, cause=java.net.UnknownHostException: a0749dec-d81e-4dc2-830a-fdb83943a05e.us-west-2-0.aws.cloud.qdrant.io
+	at java.base/java.net.InetAddress$CachedLookup.get(InetAddress.java:988)
+	at java.base/java.net.InetAddress.getAllByName0(InetAddress.java:1818)
+	at java.base/java.net.InetAddress.getAllByName(InetAddress.java:1688)
+	at io.grpc.internal.DnsNameResolver$JdkAddressResolver.resolveAddress(DnsNameResolver.java:600)
+	at io.grpc.internal.DnsNameResolver.resolveAddresses(DnsNameResolver.java:213)
+	at io.grpc.internal.DnsNameResolver.doResolve(DnsNameResolver.java:267)
+	at io.grpc.internal.DnsNameResolver$Resolve.run(DnsNameResolver.java:302)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+}
+2026-11-01T13:09:54.672+05:30  WARN 23880 --- [todo-backend] [ault-executor-6] io.grpc.internal.ManagedChannelImpl      : [Channel<1>: (a0749dec-d81e-4dc2-830a-fdb83943a05e.us-west-2-0.aws.cloud.qdrant.io:6334)] Failed to resolve name. status=Status{code=UNAVAILABLE, description=Unable to resolve host a0749dec-d81e-4dc2-830a-fdb83943a05e.us-west-2-0.aws.cloud.qdrant.io, cause=java.net.UnknownHostException: a0749dec-d81e-4dc2-830a-fdb83943a05e.us-west-2-0.aws.cloud.qdrant.io
+	at java.base/java.net.InetAddress$CachedLookup.get(InetAddress.java:988)
+	at java.base/java.net.InetAddress.getAllByName0(InetAddress.java:1818)
+	at java.base/java.net.InetAddress.getAllByName(InetAddress.java:1688)
+	at io.grpc.internal.DnsNameResolver$JdkAddressResolver.resolveAddress(DnsNameResolver.java:600)
+	at io.grpc.internal.DnsNameResolver.resolveAddresses(DnsNameResolver.java:213)
+	at io.grpc.internal.DnsNameResolver.doResolve(DnsNameResolver.java:267)
+	at io.grpc.internal.DnsNameResolver$Resolve.run(DnsNameResolver.java:302)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+}
+2026-11-01T13:09:56.868+05:30  WARN 23880 --- [todo-backend] [l-1:housekeeper] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@30d53e7a (This connection has been closed.). Possibly consider using a shorter maxLifetime value.
+2026-11-01T13:09:56.960+05:30  WARN 23880 --- [todo-backend] [l-1:housekeeper] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@15a4bbaa (This connection has been closed.). Possibly consider using a shorter maxLifetime value.
+2026-11-01T13:09:56.992+05:30  WARN 23880 --- [todo-backend] [l-1:housekeeper] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@c1b718a (This connection has been closed.). Possibly consider using a shorter maxLifetime value.
+2026-11-01T13:09:57.024+05:30  WARN 23880 --- [todo-backend] [l-1:housekeeper] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@4ea65f0 (This connection has been closed.). Possibly consider using a shorter maxLifetime value.
+2026-11-01T13:09:57.028+05:30  WARN 23880 --- [todo-backend] [l-1:housekeeper] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Thread starvation or clock leap detected (housekeeper delta=1h34m2s348ms111µs900ns).
+2026-11-01T13:09:57.030+05:30  WARN 23880 --- [todo-backend] [l-1:housekeeper] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@44d54594 (This connection has been closed.). Possibly consider using a shorter maxLifetime value.
+2026-11-01T13:09:57.088+05:30  WARN 23880 --- [todo-backend] [l-1:housekeeper] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@749ccf4f (This connection has been closed.). Possibly consider using a shorter maxLifetime value.
+2026-11-01T13:09:57.123+05:30  WARN 23880 --- [todo-backend] [l-1:housekeeper] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@235c6777 (This connection has been closed.). Possibly consider using a shorter maxLifetime value.
+2026-11-01T13:09:57.159+05:30  WARN 23880 --- [todo-backend] [l-1:housekeeper] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@74ce5309 (This connection has been closed.). Possibly consider using a shorter maxLifetime value.
+2026-11-01T13:09:57.172+05:30  WARN 23880 --- [todo-backend] [l-1:housekeeper] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@1a5951e1 (This connection has been closed.). Possibly consider using a shorter maxLifetime value.
+2026-11-01T13:09:57.183+05:30  WARN 23880 --- [todo-backend] [l-1:housekeeper] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@35af52dc (This connection has been closed.). Possibly consider using a shorter maxLifetime value.
+2026-11-01T13:09:58.388+05:30  WARN 23880 --- [todo-backend] [ault-executor-6] io.grpc.internal.ManagedChannelImpl      : [Channel<1>: (a0749dec-d81e-4dc2-830a-fdb83943a05e.us-west-2-0.aws.cloud.qdrant.io:6334)] Failed to resolve name. status=Status{code=UNAVAILABLE, description=Unable to resolve host a0749dec-d81e-4dc2-830a-fdb83943a05e.us-west-2-0.aws.cloud.qdrant.io, cause=java.net.UnknownHostException: a0749dec-d81e-4dc2-830a-fdb83943a05e.us-west-2-0.aws.cloud.qdrant.io
+	at java.base/java.net.InetAddress$CachedLookup.get(InetAddress.java:988)
+	at java.base/java.net.InetAddress.getAllByName0(InetAddress.java:1818)
+	at java.base/java.net.InetAddress.getAllByName(InetAddress.java:1688)
+	at io.grpc.internal.DnsNameResolver$JdkAddressResolver.resolveAddress(DnsNameResolver.java:600)
+	at io.grpc.internal.DnsNameResolver.resolveAddresses(DnsNameResolver.java:213)
+	at io.grpc.internal.DnsNameResolver.doResolve(DnsNameResolver.java:267)
+	at io.grpc.internal.DnsNameResolver$Resolve.run(DnsNameResolver.java:302)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+}
+2026-11-01T17:15:33.322+05:30  WARN 23880 --- [todo-backend] [l-1:housekeeper] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Thread starvation or clock leap detected (housekeeper delta=4h5m6s283ms577µs800ns).
+2026-11-01T17:15:33.336+05:30  WARN 23880 --- [todo-backend] [l-1:housekeeper] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@8ad1352 (This connection has been closed.). Possibly consider using a shorter maxLifetime value.
+2026-11-01T17:15:33.341+05:30  WARN 23880 --- [todo-backend] [l-1:housekeeper] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@4e5aeeec (This connection has been closed.). Possibly consider using a shorter maxLifetime value.
+2026-11-01T17:15:33.345+05:30  WARN 23880 --- [todo-backend] [l-1:housekeeper] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@1edc689f (This connection has been closed.). Possibly consider using a shorter maxLifetime value.
+2026-11-01T17:15:33.347+05:30  WARN 23880 --- [todo-backend] [l-1:housekeeper] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@7e0bdf95 (This connection has been closed.). Possibly consider using a shorter maxLifetime value.
+2026-11-01T17:15:33.348+05:30  WARN 23880 --- [todo-backend] [l-1:housekeeper] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@63cb5f79 (This connection has been closed.). Possibly consider using a shorter maxLifetime value.
+2026-11-01T17:15:33.352+05:30  WARN 23880 --- [todo-backend] [l-1:housekeeper] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@7a7ff062 (This connection has been closed.). Possibly consider using a shorter maxLifetime value.
+2026-11-01T17:15:33.354+05:30  WARN 23880 --- [todo-backend] [l-1:housekeeper] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@71ae722 (This connection has been closed.). Possibly consider using a shorter maxLifetime value.
+2026-11-01T17:15:33.355+05:30  WARN 23880 --- [todo-backend] [l-1:housekeeper] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@274d6723 (This connection has been closed.). Possibly consider using a shorter maxLifetime value.
+2026-11-01T17:15:33.356+05:30  WARN 23880 --- [todo-backend] [l-1:housekeeper] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@1e44d424 (This connection has been closed.). Possibly consider using a shorter maxLifetime value.
+2026-11-01T17:15:33.357+05:30  WARN 23880 --- [todo-backend] [l-1:housekeeper] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@1bbddb6e (This connection has been closed.). Possibly consider using a shorter maxLifetime value.
+2026-11-01T17:52:16.950+05:30  WARN 23880 --- [todo-backend] [onnection-adder] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Pool is empty, failed to create/setup connection (d74882cd-69f4-4061-99a2-9302b817accc)
+
+org.postgresql.util.PSQLException: The connection attempt failed.
+	at org.postgresql.core.v3.ConnectionFactoryImpl.openConnectionImpl(ConnectionFactoryImpl.java:439) ~[postgresql-42.7.13.jar:42.7.13]
+	at org.postgresql.core.ConnectionFactory.openConnection(ConnectionFactory.java:52) ~[postgresql-42.7.13.jar:42.7.13]
+	at org.postgresql.jdbc.PgConnection.<init>(PgConnection.java:295) ~[postgresql-42.7.13.jar:42.7.13]
+	at org.postgresql.Driver.makeConnection(Driver.java:437) ~[postgresql-42.7.13.jar:42.7.13]
+	at org.postgresql.Driver.connect(Driver.java:305) ~[postgresql-42.7.13.jar:42.7.13]
+	at com.zaxxer.hikari.util.DriverDataSource.getConnection(DriverDataSource.java:144) ~[HikariCP-7.0.2.jar:na]
+	at com.zaxxer.hikari.pool.PoolBase.newConnection(PoolBase.java:373) ~[HikariCP-7.0.2.jar:na]
+	at com.zaxxer.hikari.pool.PoolBase.newPoolEntry(PoolBase.java:210) ~[HikariCP-7.0.2.jar:na]
+	at com.zaxxer.hikari.pool.HikariPool.createPoolEntry(HikariPool.java:488) ~[HikariCP-7.0.2.jar:na]
+	at com.zaxxer.hikari.pool.HikariPool$PoolEntryCreator.call(HikariPool.java:752) ~[HikariCP-7.0.2.jar:na]
+	at com.zaxxer.hikari.pool.HikariPool$PoolEntryCreator.call(HikariPool.java:731) ~[HikariCP-7.0.2.jar:na]
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:317) ~[na:na]
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144) ~[na:na]
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642) ~[na:na]
+	at java.base/java.lang.Thread.run(Thread.java:1583) ~[na:na]
+Caused by: java.net.UnknownHostException: ep-icy-fire-b3voipou-pooler.c-4.ap-southeast-1.aws.neon.tech
+	at java.base/sun.nio.ch.NioSocketImpl.connect(NioSocketImpl.java:567) ~[na:na]
+	at java.base/java.net.SocksSocketImpl.connect(SocksSocketImpl.java:327) ~[na:na]
+	at java.base/java.net.Socket.connect(Socket.java:751) ~[na:na]
+	at org.postgresql.core.PGStream.createSocket(PGStream.java:270) ~[postgresql-42.7.13.jar:42.7.13]
+	at org.postgresql.core.PGStream.<init>(PGStream.java:131) ~[postgresql-42.7.13.jar:42.7.13]
+	at org.postgresql.core.v3.ConnectionFactoryImpl.tryConnect(ConnectionFactoryImpl.java:221) ~[postgresql-42.7.13.jar:42.7.13]
+	at org.postgresql.core.v3.ConnectionFactoryImpl.openConnectionImpl(ConnectionFactoryImpl.java:367) ~[postgresql-42.7.13.jar:42.7.13]
+	... 14 common frames omitted
+
+2026-11-01T17:52:41.424+05:30  WARN 23880 --- [todo-backend] [l-1:housekeeper] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Thread starvation or clock leap detected (housekeeper delta=37m8s101ms973µs600ns).

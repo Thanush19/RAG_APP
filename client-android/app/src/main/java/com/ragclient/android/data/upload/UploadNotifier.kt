@@ -15,9 +15,10 @@ import javax.inject.Singleton
 import kotlin.math.absoluteValue
 
 /**
- * One ongoing notification per upload. The id is derived from the upload
- * key rather than a counter so a worker that resumes after process death
- * updates the notification it already owns instead of stranding it.
+ * One ongoing notification per upload. The id is derived from the work id
+ * rather than a counter or the file path: the work id survives process death
+ * and, unlike the path, the UI already has it, so a cancel can always name the
+ * row it needs to clear.
  */
 @Singleton
 class UploadNotifier @Inject constructor(
@@ -27,12 +28,12 @@ class UploadNotifier @Inject constructor(
     private val manager =
         context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-    fun notificationIdFor(uploadKey: String): Int =
-        SLOT_BASE + (uploadKey.hashCode().absoluteValue % SLOT_POOL)
+    fun notificationIdFor(jobId: String): Int =
+        SLOT_BASE + (jobId.hashCode().absoluteValue % SLOT_POOL)
 
     /** Posted on every tick and handed to WorkManager as the expedited notification. */
-    fun showProgress(uploadKey: String, fileName: String, percent: Int): Notification {
-        val notification = builder(uploadKey, fileName)
+    fun showProgress(jobId: String, fileName: String, percent: Int): Notification {
+        val notification = builder(fileName)
             .setContentTitle(fileName)
             .setContentText(context.getString(R.string.upload_progress_percent, percent))
             .setStyle(
@@ -42,14 +43,14 @@ class UploadNotifier @Inject constructor(
             .setProgress(100, percent, percent <= 0)
             .setOngoing(true)
             .build()
-        post(uploadKey, notification)
+        post(jobId, notification)
         return notification
     }
 
-    fun markFinished(uploadKey: String, fileName: String) {
+    fun markFinished(jobId: String, fileName: String) {
         post(
-            uploadKey,
-            builder(uploadKey, fileName)
+            jobId,
+            builder(fileName)
                 .setContentTitle(context.getString(R.string.upload_done_title))
                 .setContentText(fileName)
                 .setStyle(
@@ -63,12 +64,14 @@ class UploadNotifier @Inject constructor(
         )
     }
 
-    fun markFailed(uploadKey: String, fileName: String, reason: String) {
+    fun markFailed(jobId: String, fileName: String, reason: String) {
         post(
-            uploadKey,
-            builder(uploadKey, fileName)
+            jobId,
+            builder(fileName)
                 .setContentTitle(context.getString(R.string.upload_failed_title))
-                .setContentText(reason)
+                // The collapsed row has to name the file too: with several uploads
+                // in the shade, a bare reason is impossible to attribute.
+                .setContentText("$fileName — $reason")
                 .setStyle(
                     NotificationCompat.BigTextStyle().bigText("$fileName — $reason")
                 )
@@ -80,16 +83,16 @@ class UploadNotifier @Inject constructor(
     }
 
     /** Used when a job is cancelled: nobody else will clear the ongoing row. */
-    fun dismiss(uploadKey: String) {
-        manager.cancel(notificationIdFor(uploadKey))
+    fun dismiss(jobId: String) {
+        manager.cancel(notificationIdFor(jobId))
     }
 
-    private fun post(uploadKey: String, notification: Notification) {
+    private fun post(jobId: String, notification: Notification) {
         beginChannel()
-        manager.notify(notificationIdFor(uploadKey), notification)
+        manager.notify(notificationIdFor(jobId), notification)
     }
 
-    private fun builder(uploadKey: String, fileName: String): NotificationCompat.Builder =
+    private fun builder(fileName: String): NotificationCompat.Builder =
         NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_app_icon)
             .setGroup(GROUP_KEY)

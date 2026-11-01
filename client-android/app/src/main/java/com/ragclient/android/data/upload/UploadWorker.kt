@@ -34,13 +34,16 @@ class UploadWorker @AssistedInject constructor(
         val path = inputData.getString(KEY_FILE_PATH)
             ?: return Result.failure(failureData("Upload request was malformed."))
         val fileName = inputData.getString(KEY_FILE_NAME) ?: File(path).name
-        val uploadKey = inputData.getString(KEY_UPLOAD_KEY) ?: fileName
+        // The work id is the notification key: unlike the staged path the UI
+        // already holds it, so a cancel can always name the row it needs to clear.
+        val jobId = params.id.toString()
 
         return try {
-            transfer(path, fileName, uploadKey)
+            transfer(path, fileName, jobId)
         } catch (cancelled: CancellationException) {
-            // A cancelled job leaves no terminal notification behind.
-            notifier.dismiss(uploadKey)
+            // A cancelled job leaves no ongoing row and no staged copy behind.
+            notifier.dismiss(jobId)
+            discardStagedFile()
             throw cancelled
         }
     }
@@ -48,11 +51,11 @@ class UploadWorker @AssistedInject constructor(
     private suspend fun transfer(
         path: String,
         fileName: String,
-        uploadKey: String
+        jobId: String
     ): Result = coroutineScope {
         val file = File(path)
         if (!file.exists()) {
-            notifier.markFailed(uploadKey, fileName, MISSING_FILE)
+            notifier.markFailed(jobId, fileName, MISSING_FILE)
             return@coroutineScope Result.failure(failureData(MISSING_FILE))
         }
 
@@ -62,8 +65,8 @@ class UploadWorker @AssistedInject constructor(
         val ticks = Channel<Int>(Channel.CONFLATED)
         val reporter = launch {
             for (percent in ticks) {
-                setProgress(progressData(uploadKey, fileName, percent))
-                notifier.showProgress(uploadKey, fileName, percent)
+                setProgress(progressData(fileName, percent))
+                notifier.showProgress(jobId, fileName, percent)
             }
         }
 
@@ -77,16 +80,16 @@ class UploadWorker @AssistedInject constructor(
         when (outcome) {
             LibraryOutcome.Ok -> {
                 file.parentFile?.deleteRecursively()
-                notifier.markFinished(uploadKey, fileName)
+                notifier.markFinished(jobId, fileName)
                 Result.success()
             }
 
-            is LibraryOutcome.Failed -> handleFailure(uploadKey, fileName, outcome)
+            is LibraryOutcome.Failed -> handleFailure(jobId, fileName, outcome)
         }
     }
 
     private fun handleFailure(
-        uploadKey: String,
+        jobId: String,
         fileName: String,
         outcome: LibraryOutcome.Failed
     ): Result {
@@ -99,23 +102,33 @@ class UploadWorker @AssistedInject constructor(
             return Result.retry()
         }
 
-        notifier.markFailed(uploadKey, fileName, outcome.message)
+        notifier.markFailed(jobId, fileName, outcome.message)
+        discardStagedFile()
         return Result.failure(failureData(outcome.message))
+    }
+
+    /**
+     * The staged copy lives in filesDir, where nothing trims it, so a job that
+     * will never run again removes its own. CoroutineWorker.onStopped is final,
+     * so the cancel path is the CancellationException catch in doWork.
+     */
+    private fun discardStagedFile() {
+        val path = inputData.getString(KEY_FILE_PATH) ?: return
+        File(path).parentFile?.deleteRecursively()
     }
 
     /** Required for expedited work, and the row shown before the first tick. */
     override suspend fun getForegroundInfo(): ForegroundInfo {
         val fileName = inputData.getString(KEY_FILE_NAME) ?: "Document"
-        val uploadKey = inputData.getString(KEY_UPLOAD_KEY) ?: fileName
-        val notification: Notification = notifier.showProgress(uploadKey, fileName, 0)
-        return ForegroundInfo(notifier.notificationIdFor(uploadKey), notification)
+        val jobId = params.id.toString()
+        val notification: Notification = notifier.showProgress(jobId, fileName, 0)
+        return ForegroundInfo(notifier.notificationIdFor(jobId), notification)
     }
 
-    private fun progressData(uploadKey: String, fileName: String, percent: Int) =
+    private fun progressData(fileName: String, percent: Int) =
         workDataOf(
             KEY_PROGRESS to percent,
-            KEY_FILE_NAME to fileName,
-            KEY_UPLOAD_KEY to uploadKey
+            KEY_FILE_NAME to fileName
         )
 
     private fun failureData(message: String) = workDataOf(KEY_FAILURE to message)
@@ -124,7 +137,6 @@ class UploadWorker @AssistedInject constructor(
         const val TAG = "document-upload"
         const val KEY_FILE_PATH = "filePath"
         const val KEY_FILE_NAME = "fileName"
-        const val KEY_UPLOAD_KEY = "uploadKey"
         const val KEY_PROGRESS = "percent"
         const val KEY_FAILURE = "failureMessage"
 
