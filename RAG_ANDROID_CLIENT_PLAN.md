@@ -1125,10 +1125,65 @@ for if an animated asset comes back.
 - APK contents: both PNGs and both adaptive XMLs present, `res/raw/` gone.
 - Cold start over adb (`am start`) → process alive, **no** `AndroidRuntime` /
   `FATAL` lines in logcat.
-- **Not yet verified visually**: `dumpsys trust` still reports
-  `deviceLocked=1`, `mWakefulness=Dozing`, and `gfxinfo` shows only
-  "Total frames rendered: 1", i.e. the activity never got a real frame while
-  locked. The fade, the logo size on screen and the icon on the home screen are
-  still unconfirmed on-device — same blocker as §14's G5 upload/notification
-  test. Ask the user to unlock the phone, then capture both.
+- **Verified on device 2026-11-01** (phone finally unlocked): burst screencaps
+  caught the panel at full opacity — background samples read exactly
+  `#F7F6F2` = `AppColors.Surface`, and a pixel diff of two splash frames showed
+  the only changed pixels inside the logo's bounding box, i.e. nothing from the
+  chat screen bleeds through. The launcher icon and the focused composer were
+  likewise confirmed by screenshot.
+
+# 18. CHAT COMPOSER: ONE OUTLINE AROUND FIELD + SEND (2026-11-01)
+
+## 18.1 Incident first — a hand edit that could not compile
+
+The user pasted `Row(..., modifier = Modifier.color(colors = OutlinedTextFieldDefaults.colors(...)))`
+and asked what was wrong. Three separate mistakes in one line, and only the
+first is reported:
+
+1. `Modifier.color(...)` does not exist (paint modifiers are `background`,
+   `drawBehind`, `blur`, …) → `Unresolved reference: color`.
+2. `OutlinedTextFieldDefaults.colors(...)` returns a **`TextFieldColors`**, not
+   a `Color`. It is only valid as the `colors =` argument of a text field; a
+   `Row` has no border, cursor or focus state to apply it to.
+3. Moving it also *deleted* the styling: `focusedBorderColor` /
+   `unfocusedBorderColor` were cut out of the field's own `colors` block, so the
+   field silently reverted to theme defaults. A change like this compiles and
+   simply looks wrong.
+
+An unused `import androidx.compose.ui.draw.blur` came with the edit and was
+removed too.
+
+## 18.2 The actual request, and how it is done
+
+Goal: when the prompt is focused, the active border should also enclose the
+send button, which previously sat *outside* the field.
+
+Fix in `feature/chat/ChatScreen.kt` `PromptBar`: the `IconButton` moved from
+being a sibling in a `Row(verticalAlignment = Alignment.Bottom)` into the
+field's own **`trailingIcon` slot**, and the `Row` wrapper went away (the field
+is now `fillMaxWidth()`). Material draws the outline around the whole field
+including its icon slots, so the focus ring covers the button for free — no
+custom border, no hoisted focus state.
+
+- `uiautomator dump` confirms it geometrically: the `EditText` spans
+  `[39,2095][1041,2270]` and the `content-desc="Send"` node is
+  `[935,2156][991,2212]` — inside the field's box.
+- Behaviour change to know about: the trailing icon is **vertically centred**
+  by Material, so as the field grows toward its 160 dp max the button floats to
+  the middle instead of hugging the bottom (the old `Alignment.Bottom` +
+  `bottom = 8.dp` padding did that). Accept it, or move back to a container
+  border if bottom anchoring ever matters more than the single outline.
+- The same pattern already existed on SearchScreen's query field (magnifier
+  inside the outline), so the two bars now match.
+
+## 18.3 Verification
+
+- `assembleDevDebug testDevDebugUnitTest installDevDebug` → `CLIENT_EXIT=0`,
+  BUILD SUCCESSFUL, 31 tests / 0 failures, "Installed on 1 device".
+- On-device screenshots after the change: focused composer shows one continuous
+  emerald outline around the pill *and* the send circle; the search screen
+  shows no slider (§16.6); the splash is a full opaque paper surface with the
+  wordmark (§17.4).
+- Still outstanding: §14's G5 upload + notification smoke test — the device is
+  unlocked now, so nothing blocks it any more.
 

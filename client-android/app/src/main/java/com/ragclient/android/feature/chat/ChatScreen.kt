@@ -1,5 +1,10 @@
 package com.ragclient.android.feature.chat
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -202,15 +207,36 @@ private fun StreamingRow(
                 style = AppType.AnswerBody,
                 color = MaterialTheme.colorScheme.onBackground
             )
-            Text(
-                text = " ▍",
-                style = AppType.AnswerBody,
-                color = AppColors.Accent
-            )
+            BlinkingCaret()
         }
         SourceRow(sources = sources, onOpenSource = onOpenSource)
     }
 }
+
+/**
+ * The answer's trailing block, on/off like a real text caret. Kept in its own
+ * composable so the blink only recomposes this `Text`, not the streaming
+ * answer above it.
+ */
+@Composable
+private fun BlinkingCaret() {
+    val transition = rememberInfiniteTransition(label = "caret")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(CaretCycleMillis, easing = LinearEasing)),
+        label = "caret-phase"
+    )
+
+    Text(
+        text = " ▍",
+        style = AppType.AnswerBody,
+        color = AppColors.Accent.copy(alpha = if (phase < 0.5f) 1f else 0f)
+    )
+}
+
+/** 1060 ms cycle = 530 ms on + 530 ms off, the interval text editors use. */
+private const val CaretCycleMillis = 1_060
 
 @Composable
 private fun SourceRow(
@@ -316,50 +342,56 @@ private fun PromptBar(
                 }
             }
 
-            Row(verticalAlignment = Alignment.Bottom) {
-                OutlinedTextField(
-                    value = value,
-                    onValueChange = onValueChange,
-                    placeholder = { Text("Ask anything…", style = AppType.Body) },
-                    enabled = !isGenerating,
-                    modifier = Modifier
-                        .weight(1f)
-                        .heightIn(min = 52.dp, max = 160.dp),
-                    shape = AppShapes.PromptBar,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.surfaceVariant,
-                        cursorColor = MaterialTheme.colorScheme.primary
-                    )
-                )
-
-                IconButton(
-                    onClick = { if (isGenerating) onStop() else onSend() },
-                    enabled = actionEnabled,
-                    modifier = Modifier
-                        .padding(start = 6.dp, end = 8.dp, bottom = 8.dp)
-                        .size(44.dp)
-                        .background(
-                            color = if (actionEnabled) {
-                                MaterialTheme.colorScheme.primary
+            OutlinedTextField(
+                value = value,
+                onValueChange = onValueChange,
+                placeholder = { Text("Ask anything…", style = AppType.Body) },
+                enabled = !isGenerating,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 52.dp, max = 160.dp),
+                shape = AppShapes.PromptBar,
+                // The send button lives in the field's own trailing slot so the
+                // focus outline wraps it; as a sibling of the field it sat
+                // outside the border.
+                trailingIcon = {
+                    IconButton(
+                        onClick = { if (isGenerating) onStop() else onSend() },
+                        enabled = actionEnabled,
+                        modifier = Modifier
+                            .padding(end = 6.dp)
+                            .size(44.dp)
+                            .background(
+                                color = if (actionEnabled) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceVariant
+                                },
+                                shape = CircleShape
+                            )
+                    ) {
+                        Icon(
+                            imageVector = if (isGenerating) {
+                                Icons.Filled.Close
                             } else {
-                                MaterialTheme.colorScheme.surfaceVariant
+                                Icons.AutoMirrored.Filled.Send
                             },
-                            shape = CircleShape
+                            contentDescription = if (isGenerating) "Stop" else "Send",
+                            tint = if (actionEnabled) {
+                                MaterialTheme.colorScheme.onPrimary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            modifier = Modifier.size(20.dp)
                         )
-                ) {
-                    Icon(
-                        imageVector = if (isGenerating) Icons.Filled.Close else Icons.AutoMirrored.Filled.Send,
-                        contentDescription = if (isGenerating) "Stop" else "Send",
-                        tint = if (actionEnabled) {
-                            MaterialTheme.colorScheme.onPrimary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
+                    }
+                },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.surfaceVariant,
+                    cursorColor = MaterialTheme.colorScheme.primary
+                )
+            )
         }
     }
 }
