@@ -53,7 +53,6 @@ class SearchReducerTest {
     fun `clear resets to the initial state`() {
         val used = SearchState(
             query = "abc",
-            minScore = 0.4f,
             results = listOf(hit),
             hasSearched = true,
             error = "boom"

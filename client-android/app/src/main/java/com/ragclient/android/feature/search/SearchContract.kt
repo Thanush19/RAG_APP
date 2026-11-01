@@ -11,29 +11,22 @@ data class SearchHit(
 
 data class SearchState(
     val query: String = "",
-    val minScore: Float = DEFAULT_MIN_SCORE,
     val results: List<SearchHit> = emptyList(),
     val isLoading: Boolean = false,
     val error: String? = null,
     val hasSearched: Boolean = false
 ) {
     val canSearch: Boolean get() = !isLoading && query.isNotBlank()
-
-    companion object {
-        const val DEFAULT_MIN_SCORE = 0.05f
-    }
 }
 
 sealed interface SearchIntent {
     data class ChangeQuery(val query: String) : SearchIntent
-    data class ChangeMinScore(val minScore: Float) : SearchIntent
     data object Run : SearchIntent
     data object Clear : SearchIntent
 }
 
 sealed interface SearchResult {
     data class QueryChanged(val query: String) : SearchResult
-    data class MinScoreChanged(val minScore: Float) : SearchResult
     data object Started : SearchResult
     data class Loaded(val hits: List<SearchHit>) : SearchResult
     data class Failed(val message: String) : SearchResult
@@ -44,8 +37,6 @@ object SearchReducer {
 
     fun reduce(state: SearchState, result: SearchResult): SearchState = when (result) {
         is SearchResult.QueryChanged -> state.copy(query = result.query, error = null)
-
-        is SearchResult.MinScoreChanged -> state.copy(minScore = result.minScore)
 
         SearchResult.Started -> state.copy(
             isLoading = true,

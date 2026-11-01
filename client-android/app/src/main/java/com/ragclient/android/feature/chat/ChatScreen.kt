@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -289,7 +288,9 @@ private fun PromptBar(
         tonalElevation = 3.dp,
         modifier = Modifier
             .fillMaxWidth()
-            .navigationBarsPadding()
+            // No navigationBarsPadding here: this screen is inside the
+            // shell's Scaffold, whose content padding already reserves the
+            // bottom system bar. Adding it again doubles the gap.
             .imePadding()
             .padding(horizontal = 14.dp, vertical = 10.dp)
     ) {

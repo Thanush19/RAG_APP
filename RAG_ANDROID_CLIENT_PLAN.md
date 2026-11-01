@@ -826,3 +826,309 @@ a 382-byte PDF → `201 READY`, but a 2300-byte `text/plain` →
 - Deferred UI items are unchanged: adaptive list-detail + NavigationRail,
   Material You dynamic color, motion polish.
 
+# 15. EDGE-TO-EDGE INSETS (2026-11-01)
+
+`MainActivity` has called `enableEdgeToEdge()` since M0, but nothing in the
+composition ever asked for the insets it exposes, so the status bar drew on
+top of the app bar.
+
+## 15.1 Library facts worth keeping (read from the resolved sources, not memory)
+
+Verified against `material3-android:1.4.0` and
+`foundation-layout-android:1.12.1` sources in the Gradle cache — the BOM
+resolves these, don't assume another version's behaviour:
+
+- `ScaffoldDefaults.contentWindowInsets = WindowInsets.systemBarsForVisualComponents`,
+  and the content `PaddingValues` bottom is `insets.calculateBottomPadding()`
+  **whenever there is no `bottomBar`**. So every NavHost destination here is
+  already inset on left/right/bottom.
+- `TopAppBarDefaults.windowInsets = systemBarsForVisualComponents.only(Horizontal + Top)` —
+  the convention a custom bar should copy. `systemBarsForVisualComponents`
+  itself is `androidx.compose.material3.internal`, i.e. **not public API**, so
+  a hand-rolled bar composes the same sides from `statusBars` + `displayCutout`.
+- `DrawerDefaults.windowInsets = systemBarsForVisualComponents.only(Vertical + Start)`
+  and `ModalDrawerSheet` applies it → **the drawer needed no change**.
+- `imePadding()` is plain `windowInsetsPadding(WindowInsets.ime)`.
+- Key gotcha: `Modifier.padding(paddingValues)` from a Scaffold does **not**
+  consume insets. Insets-aware modifiers inside the content (`navigationBarsPadding`)
+  therefore re-apply the same bars → double padding. Only
+  `windowInsetsPadding` / `consumeWindowInsets` participate in consumption.
+
+## 15.2 What was wrong and what changed
+
+| Screen | Problem | Fix |
+| --- | --- | --- |
+| `feature/shell/AppShell.kt` `ShellTopBar` | plain `Row`, no insets → title and icons rendered under the status bar | `.windowInsetsPadding(statusBars.only(Top))` + `.windowInsetsPadding(displayCutout.only(Horizontal))`, placed **after** `.background()` so the bar colour still paints behind the status bar |
+| `feature/chat/ChatScreen.kt` composer | `.navigationBarsPadding()` on top of the Scaffold's own bottom inset → the input bar floated ~2× the nav bar above the gesture pill | padding removed (comment left in place); `.imePadding()` kept |
+| `feature/auth/AuthScreen.kt` | root when signed out, so **no** Scaffold hands it insets — it had `navigationBarsPadding` + `imePadding` but nothing for the top | `.statusBarsPadding()` added |
+| Drawer, viewer, search, profile | — | untouched; already covered by `ModalDrawerSheet` / Scaffold content padding |
+
+Because the top bar's insets are consumed inside it, the `topBarPlaceable.height`
+the Scaffold reports already includes the status bar, so the banner overlay
+(`padding.calculateTopPadding()`) and the NavHost both shift down for free.
+
+## 15.3 Device numbers and verification
+
+From `dumpsys window` on `RZCXB0FWFNW` (SM-S711B, 1080×2340):
+`statusBars frame=[0,0][1080,80]`, `navigationBars` bottom inset **42 px**.
+So the composer was sitting ~84 px up, not 42.
+
+- `assembleDevDebug testDevDebugUnitTest` → `CLIENT_EXIT=0`, BUILD SUCCESSFUL 40s,
+  31 tests / 0 failures (no reducer changed — insets are layout-only).
+- Before/after screenshots taken over adb with the app on the chat screen:
+  before shows "Thagaval" overlapping the 09:32 clock and a wide dead band
+  under the input bar; after shows the title fully below the status bar and
+  the composer resting just above the gesture pill.
+- Chat itself was exercised live in the same session: a streamed answer
+  rendered with `[S1][S2]` markers and tappable `S1 · p1` / `S2 · p1` chips.
+
+## 15.4 Known remaining inset nit
+
+With the keyboard open, the composer is pushed up by the Scaffold's 42 px
+nav-bar padding **plus** the full IME height, so there is a small gap above
+the keyboard. The precise fix is
+`windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))`
+instead of `imePadding()` — deliberately not done here because it changes
+keyboard behaviour, which is a separate thing to verify on-device.
+
+# 16. SEARCH: WHAT `minScore` ACTUALLY DOES (2026-11-01)
+
+The user asked what the SearchScreen slider does. Answering it required
+reading the backend filter order and measuring real scores, and uncovered two
+genuine defects: the slider was a **dead control**, and its range was mostly
+a dead zone.
+
+## 16.1 The semantics (from code, not assumption)
+
+- Qdrant collection is created with `Distance.Cosine`
+  (`backend/.../qdrant/QdrantCollectionInitializer.java:42`), so the score is
+  **cosine similarity** between the query embedding and the passage embedding
+  — a meaning-similarity in 0..1 for normalized vectors, not a keyword overlap.
+- `RetrievalService.retrieve` applies `matches.filter { it.score >= minScore }`
+  **after** `searchSimilar(topK)`. Consequence: raising `minScore` can only
+  *remove* results from a fixed pool of `topK`; it never brings a better match
+  in. Lowering it past the pool's floor does nothing either.
+- Numbers: backend `DEFAULT_TOP_K = 5`, but the client sends
+  `topK = 12` (`SearchViewModel.RESULTS_LIMIT`), and the client default
+  threshold is `SearchState.DEFAULT_MIN_SCORE = 0.05f`.
+- Endpoint is `/api/v1/search` (`SearchController @RequestMapping`) —
+  **not** `/api/v1/rag/search`; probing the wrong path silently returns 0
+  hits for every threshold, which is how the first measurement round fooled us.
+
+## 16.2 Measured score distribution (live index, test4 account)
+
+Queried the running backend over `adb reverse tcp:8080` with the account's own
+documents, reading the top-2 score of each query:
+
+| Query | top scores |
+| --- | --- |
+| "docker" | 0.0878 / 0.0794 |
+| "years of experience" | 0.1498 / 0.0723 |
+| "partner management portal" | 0.2306 / 0.1520 |
+| "nginx" | 0.2270 / 0.2033 |
+
+At `minScore = 0.15`, two of the four queries return **zero** results. At
+`0.30`, **every** query returns zero. So on this index, real matches live in
+~0.05–0.25 and nothing clears 0.30 — which is why the old `0f..0.6f` track
+put 60% of its travel in a region that always yields an empty list.
+
+## 16.3 What changed in `feature/search/SearchScreen.kt`
+
+| Change | Why |
+| --- | --- |
+| `LaunchedEffect(state.minScore)` + `delay(SETTLE_MS = 350)` re-dispatches `SearchIntent.Run` when `hasSearched && !isLoading && query.isNotBlank()` | the filter is server-side, so without a re-run the slider did nothing until the user pressed Search again |
+| Slider range narrowed `0f..0.6f` → `0f..0.4f` | measured ceiling is ~0.23; wider track is dead zone |
+| Label renamed to "Minimum match score" + explanatory caption | plain meaning ("how close a passage must be to your question — measured by meaning, not shared keywords") plus the monotonic rule ("raising this only ever removes results") |
+| Dynamic `Float.interpretation()` line in accent colour | tells the user what the *current* position does, in 5 bands from "Broadest" to "Very strict — expect no results" |
+| Empty state names the threshold: "Nothing scored above 0.xx. Drag the slider down…" | the previous "No matches" gave no hint that the control they just moved caused it |
+| Result card header now `file · pN · match 0.xx` | surfaces the score per hit so the bands are learnable by watching real results |
+
+`interpretation()` bands: `<0.05` broadest · `<0.12` broad (where useful
+matches actually land) · `<0.20` balanced · `<0.30` strict (results thin out) ·
+else very strict (almost nothing scores this high).
+
+## 16.4 Verification
+
+- `assembleDevDebug testDevDebugUnitTest installDevDebug` → `CLIENT_EXIT=0`,
+  BUILD SUCCESSFUL 11s, 31 tests / 0 failures, "Installed on 1 device".
+- The backend evidence in 16.1/16.2 came from live HTTP calls, so the copy is
+  grounded in this index, not in a generic RAG description.
+- **Outstanding**: on-device visual check of the new slider block. The phone
+  went to a secure lock mid-verification (`dumpsys trust` →
+  `trustState=UNTRUSTED deviceLocked=1`, `dreaming=true`), so screencap
+  returns an all-black frame. This blocks §14's G5 upload/notification smoke
+  test too — both need the device unlocked.
+
+## 16.5 Notes for a future session
+
+- `AppType` has Display / AnswerBody / Label / Body — there is **no**
+  `AppType.Caption`.
+- Auto re-search on `minScore` means every settled drag costs one request. If
+  the backend gets rate-limited, gate on `state.results.isNotEmpty()` or raise
+  `SETTLE_MS` rather than removing the behaviour.
+- `minScore` is not a relevance *ranking* knob; if the product eventually wants
+  "more results" that is `topK`, currently fixed at 12 in the ViewModel.
+
+## 16.6 REVERTED the same day — the slider is gone
+
+User's call after seeing it explained: the control is not worth a user
+understanding cosine at all. So the whole slider block was deleted rather than
+left in with better copy.
+
+- Removed: `SearchState.minScore` + `DEFAULT_MIN_SCORE`,
+  `SearchIntent.ChangeMinScore`, `SearchResult.MinScoreChanged` and its reducer
+  branch, the debounced `LaunchedEffect(state.minScore)` re-search,
+  `Float.interpretation()`, `SETTLE_MS`, and the `Slider`/`SliderDefaults`
+  imports. Empty-state copy no longer names a threshold the user cannot move.
+- `SearchViewModel` now sends a fixed `MIN_SCORE = 0.05f` (companion const,
+  with the measured 0.07–0.23 rationale in its comment). **§16.1 and §16.2 are
+  still the reason that number is 0.05** — keep them.
+- What survived from §16.3: the per-result `match 0.xx` score on each card, so
+  the ranking is still visible even though the filter is not.
+- Verified live after the change: `minScore=0.05` returns every useful hit for
+  all four probe queries (0.088/0.079, 0.150/0.072, 0.231/0.152, 0.227/0.203).
+  `assembleDevDebug testDevDebugUnitTest installDevDebug` → `CLIENT_EXIT=0`,
+  31 tests / 0 failures (the reducer test dropped its `minScore` argument),
+  "Installed on 1 device".
+- If this ever comes back it should be a two-state control (e.g. "show fewer
+  matches"), not a raw 0–0.4 float track.
+
+# 17. BRAND ASSETS: LAUNCHER ICON + SPLASH LOGO (2026-11-01)
+
+User supplied `thagaval_logo.png` (1408×768 RGBA) and
+`thagaval_splash_animation.gif` (2.3 MB) and asked for the first to become the
+app logo and the second to be the splash animation. Both had been dropped
+loosely into `app/src/main/res/`, which is not a valid resource folder — every
+asset now lives in a qualified directory.
+
+**Same-day revision:** after the GIF splash was built and installed, the user
+asked to drop it and use the logo itself on the splash instead. The GIF is
+**gone from the repo** (`res/raw/` deleted; the source file still sits in
+`~/Downloads` if it is ever wanted again) and the splash is a fade-in/hold/
+fade-out of the wordmark. §17.4–17.6 describe the shipped logo version; the
+GIF measurements stay in §17.1 only as history.
+
+## 17.1 What the assets actually are (measured, not assumed)
+
+- **Logo PNG**: fully **opaque** — the "white" background is real pixels
+  (`#FBF9FA`/`#FFFFFF`, alpha 255 everywhere), and the ink is
+  `#119F79`, i.e. effectively `AppColors.Accent` (`#16A37A`). Using it directly
+  would paint a white rectangle on the warm `#F7F6F2` app surface.
+- **Layout**: document+graph glyph on top, "Thagaval" wordmark below, with a
+  blank row gap between them. The glyph is 275×344 of the 1408×768 canvas.
+- **GIF**: GIF89a, 1080×1080, **47 frames, 2160 ms per loop, NETSCAPE
+  infinite-loop block, no transparency flag, white canvas**, max frame delay
+  200 ms. Frame 0 is blank white (the animation draws the mark in).
+
+## 17.2 Asset pipeline (`client-android/tools/MakeIcon.java`)
+
+No ImageMagick/Python/ffmpeg on this box — JDK 21 ImageIO is the only image
+tool, and `java File.java` runs single-file programs directly. Re-run after any
+logo change:
+
+```bash
+cd client-android
+java tools/MakeIcon.java <src.png> <out-wordmark.png> 432 0.56 <out-foreground.png>
+# then:
+cp <out-wordmark.png>    app/src/main/res/drawable-nodpi/thagaval_logo.png
+cp <out-foreground.png>  app/src/main/res/drawable-nodpi/ic_launcher_foreground.png
+```
+
+What it does, and why:
+
+1. **Knockout**: alpha = f(near-white ∧ low-saturation). Chroma > 28 keeps
+   88% of the pixel so anti-aliased green edges survive instead of halos.
+2. **Glyph crop**: cuts at the first run of ≥12 empty rows below the mark
+   rather than a hard-coded fraction — the first attempt used `0.68 * height`
+   and dragged the tops of the wordmark's letters into the icon.
+3. **Icon canvas**: 432×432 with the glyph at **56%** of the canvas.
+   Adaptive-icon geometry: the 108dp canvas is scaled into the launcher's 72dp
+   display box, so the 66dp "safe zone" is only 61% of the canvas — the
+   corners of a portrait mark cross that ring at 56%, but the *mask* (circle /
+   squircle, 100% of the display box) still contains the whole glyph.
+   46% was provably un-clipped but looked small; 62% was the first guess and
+   wasted canvas. Verified by rendering the foreground under
+   square/circle/squircle masks with the safe ring overlaid.
+
+## 17.3 Files
+
+| Path | What |
+| --- | --- |
+| `res/drawable-nodpi/thagaval_logo.png` | wordmark, white knocked out to alpha; **this is the splash art** |
+| `res/drawable-nodpi/ic_launcher_foreground.png` | 432² transparent glyph, centred |
+| `res/mipmap-anydpi-v26/ic_launcher.xml` + `ic_launcher_round.xml` | `<adaptive-icon>` = white background + foreground + `<monochrome>` (themed icons on Android 13+) |
+| `res/values/colors.xml` | `ic_launcher_background` `#FFFFFFFF`, `splash_background` `#FFF7F6F2` (= `AppColors.Surface`) |
+| `AndroidManifest.xml` | `android:icon="@mipmap/ic_launcher"`, new `android:roundIcon` |
+| `feature/splash/SplashScreen.kt` | new `SplashGate` (below) |
+| `MainActivity.kt` | `SplashGate { RagRoot() }` |
+| `res/values/themes.xml` | `android:windowBackground` → `@color/splash_background` |
+
+`res/drawable/ic_app_icon.xml` stays: it is still
+`UploadNotifier.setSmallIcon` (notification small icons must be simple
+monochrome silhouettes, the brand glyph is too detailed).
+
+**No adaptive-icon PNG densities are needed**: `minSdk = 26` means
+`mipmap-anydpi-v26` always matches, so no `mipmap-*dpi` fallbacks.
+
+## 17.4 How the splash works (logo version, shipped)
+
+`SplashGate` composes the real app **underneath** the logo, so the session gate
+(auth check) resolves while it is on screen instead of after — no double flash.
+`MainActivity` is just `SplashGate { RagRoot() }`.
+
+- One `Animatable<Float>` alpha on the logo `Image`:
+  fade in 220 ms → hold 650 ms → fade out 260 ms ≈ **1.1 s** total. The GIF was
+  2.2 s, so this also halves the wait on every cold start.
+- `painterResource(R.drawable.thagaval_logo)` + `ContentScale.Fit`, sized
+  `fillMaxWidth(0.66f).widthIn(max = 300.dp)` so the 1.83:1 wordmark does not
+  blow up on a tablet.
+- No `AndroidView`, no `ImageDecoder`, no watchdog: a static drawable either
+  loads or the app has bigger problems, so the timer is unconditional.
+- **Layering bug found on device (2026-11-01):** the paper background was
+  originally on the *root* `Box`, i.e. behind `content()`. On a cold start the
+  app underneath has not painted yet so it looked fine, but on a warm start
+  (activity recreated from recents) the chat screen was already drawn and the
+  logo appeared to float on top of it. The background now belongs to a
+  `matchParentSize()` overlay panel, and the fade is split in two:
+  `logoAlpha` 0→1 while the panel is already opaque, then `panelAlpha` 1→0 so
+  the whole branded surface dissolves into the app.
+- Background is `AppColors.Surface`, and `android:windowBackground` is the same
+  colour via `@color/splash_background`, so the starting window and the
+  Compose surface match.
+
+The GIF-era design (`AnimatedImageDrawable` through `AndroidView`,
+`repeatCount = 0`, a `@RequiresApi(28)` decode split because API 26–27 has no
+`AnimatedImageDrawable`, a timer instead of a loop-finished callback since
+`AnimatedImageDrawable` exposes none) is gone, but it is the recipe to reach
+for if an animated asset comes back.
+
+## 17.5 Consequences worth knowing
+
+- **The splash is always the light paper surface, including in dark mode.** The
+  wordmark's lettering is black, so it would be invisible on `DarkSurface`.
+  A dark-mode brand asset needs a light-coloured export.
+- Dropping the GIF took the dev-debug APK from **17.05 MB to 14.46 MB**.
+- On Android 12+ the *system* splash (which now shows the new adaptive icon)
+  runs before this overlay, so a cold start is icon → logo fade → app. On
+  API 26–30 the `windowBackground` colour covers the gap instead.
+- Samsung's launcher caches icons; if the home-screen icon looks stale after
+  this change, remove and re-add it or reboot the launcher.
+
+## 17.6 Verification
+
+- `assembleDevDebug testDevDebugUnitTest installDevDebug` after the logo
+  switch → `CLIENT_EXIT=0`, BUILD SUCCESSFUL 21s, 31 tests / 0 failures,
+  "Installed on 1 device" (SM-S711B, **Android 16**).
+- `aapt2 dump badging` → `application: label='Thagaval'
+  icon='res/mipmap-anydpi-v26/ic_launcher.xml'`; `dump xmltree` confirms
+  background/foreground/monochrome resolve to real resource ids.
+- APK contents: both PNGs and both adaptive XMLs present, `res/raw/` gone.
+- Cold start over adb (`am start`) → process alive, **no** `AndroidRuntime` /
+  `FATAL` lines in logcat.
+- **Not yet verified visually**: `dumpsys trust` still reports
+  `deviceLocked=1`, `mWakefulness=Dozing`, and `gfxinfo` shows only
+  "Total frames rendered: 1", i.e. the activity never got a real frame while
+  locked. The fade, the logo size on screen and the icon on the home screen are
+  still unconfirmed on-device — same blocker as §14's G5 upload/notification
+  test. Ask the user to unlock the phone, then capture both.
+

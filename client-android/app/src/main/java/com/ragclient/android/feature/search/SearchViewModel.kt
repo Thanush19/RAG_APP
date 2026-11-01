@@ -23,9 +23,6 @@ class SearchViewModel @Inject constructor(
             is SearchIntent.ChangeQuery ->
                 reduceResult(SearchResult.QueryChanged(intent.query))
 
-            is SearchIntent.ChangeMinScore ->
-                reduceResult(SearchResult.MinScoreChanged(intent.minScore))
-
             SearchIntent.Clear -> reduceResult(SearchResult.Cleared)
 
             SearchIntent.Run -> search()
@@ -43,7 +40,7 @@ class SearchViewModel @Inject constructor(
                     SearchRequestDto(
                         query = current.query.trim(),
                         topK = RESULTS_LIMIT,
-                        minScore = current.minScore
+                        minScore = MIN_SCORE
                     )
                 )
             }.onSuccess { response ->
@@ -78,5 +75,12 @@ class SearchViewModel @Inject constructor(
 
     private companion object {
         const val RESULTS_LIMIT = 12
+
+        /**
+         * Cosine cut-off the server applies *after* top-K retrieval, so raising
+         * it can only remove results. Measured on the live index: correct
+         * matches land at 0.07–0.23, so anything stricter starts eating them.
+         */
+        const val MIN_SCORE = 0.05f
     }
 }

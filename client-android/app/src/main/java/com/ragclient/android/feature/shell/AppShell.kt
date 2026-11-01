@@ -12,12 +12,18 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -261,7 +267,12 @@ private fun ShellTopBar(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
+            // Background first so the colour still paints behind the status
+            // bar; the insets are then consumed here, so the Scaffold hands
+            // the NavHost a top padding that already includes them.
             .background(MaterialTheme.colorScheme.background)
+            .windowInsetsPadding(WindowInsets.statusBars.only(WindowInsetsSides.Top))
+            .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal))
             .padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 6.dp)
     ) {
         IconButton(onClick = onMenu) {

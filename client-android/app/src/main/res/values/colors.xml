@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Adaptive-icon backdrop. The brand glyph is green on transparent, so it
+         needs a light field; the launcher clips this to its own mask. -->
+    <color name="ic_launcher_background">#FFFFFFFF</color>
+
+    <!-- Starting-window colour. Matches AppColors.Surface, which is what the
+         splash logo fades in over; a mismatch would flash on cold start. -->
+    <color name="splash_background">#FFF7F6F2</color>
+</resources>

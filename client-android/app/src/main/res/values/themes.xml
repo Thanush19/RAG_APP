@@ -4,5 +4,9 @@
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">true</item>
+        <!-- Every screen paints an opaque background before this can show, so
+             it only affects the starting window: it matches the splash logo's
+             paper surface so the hand-off into the animation is seamless. -->
+        <item name="android:windowBackground">@color/splash_background</item>
     </style>
 </resources>

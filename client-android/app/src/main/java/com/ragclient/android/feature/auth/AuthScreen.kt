@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -65,7 +66,10 @@ private fun AuthContent(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
+                // This screen is the root when signed out, so there is no
+                // Scaffold handing it insets — it takes all of them itself.
                 .imePadding()
+                .statusBarsPadding()
                 .navigationBarsPadding()
                 .padding(horizontal = 28.dp, vertical = 48.dp),
             horizontalAlignment = Alignment.CenterHorizontally,

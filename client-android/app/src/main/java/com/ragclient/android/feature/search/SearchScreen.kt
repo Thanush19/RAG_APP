@@ -18,8 +18,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -84,33 +82,6 @@ private fun SearchContent(
                 .padding(top = 8.dp)
         )
 
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.padding(top = 4.dp)
-        ) {
-            Text(
-                text = "Min score",
-                style = AppType.Label,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Slider(
-                value = state.minScore,
-                onValueChange = { onIntent(SearchIntent.ChangeMinScore(it)) },
-                valueRange = 0f..0.6f,
-                colors = SliderDefaults.colors(
-                    thumbColor = AppColors.Accent,
-                    activeTrackColor = AppColors.Accent
-                ),
-                modifier = Modifier.weight(1f)
-            )
-            Text(
-                text = String.format("%.2f", state.minScore),
-                style = AppType.Label,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-
         state.error?.let { problem ->
             Text(
                 text = problem,
@@ -129,7 +100,7 @@ private fun SearchContent(
             )
         } else if (state.hasSearched && state.results.isEmpty()) {
             Text(
-                text = "No passages above that score. Lower the min score or rephrase.",
+                text = "No passage in your documents matched that. Try different wording.",
                 style = AppType.Body,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = 16.dp)
@@ -176,7 +147,8 @@ private fun ResultCard(
                 modifier = Modifier.weight(1f)
             ) {
                 Text(
-                    text = "${hit.fileName} · p${hit.pageNumber ?: "?"} · ${String.format("%.2f", hit.score)}",
+                    text = "${hit.fileName} · p${hit.pageNumber ?: "?"} · " +
+                        "match ${String.format("%.2f", hit.score)}",
                     style = AppType.Label,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
