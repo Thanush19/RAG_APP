@@ -1362,4 +1362,161 @@ failures CANNOT surface as 503 — they are `error` events with
 - Manual check with curl:
   `curl -N -X POST /api/v1/rag/ask/stream -H "Authorization: Bearer <jwt>" -H "Content-Type: application/json" -d '{"question":"What is this document about?"}`
 
+# 23. LLM OUTAGE + CREDENTIALS STATUS-CODE FIX (2026-10-31)
+
+Surfaced while doing the first Android device pass (client plan section 12).
+
+## 23.1 `openai/gpt-oss-20b` stopped responding — chat model swapped
+
+Symptom: `POST /api/v1/rag/ask` hung ~98s then the connection reset
+(curl exit 56, `HTTP=000`); `POST /api/v1/rag/ask/stream` died in ~2s,
+and on one attempt returned a bare Spring Security **403 with
+`Content-Length: 0`** instead of any events. `/api/v1/search` kept
+returning 200, which localised the fault to the chat call, not
+retrieval.
+
+Direct probes against `https://integrate.api.nvidia.com/v1` with the
+configured key (extract from `app.ai.nvidia.api-key`, note the value is
+**quoted in the yaml** — strip the quotes or you get a misleading
+`401 Invalid JWT serialization`):
+
+- `/embeddings` with `nvidia/nemotron-3.5-embed-1b` → **200 in 0.67s**.
+  Key is valid; embeddings unaffected.
+- `/chat/completions` with `openai/gpt-oss-20b` → **no response headers
+  at all**, 45s and 180s attempts (`HTTP=000`), with `stream:true` and
+  `stream:false` alike. The model is still listed by `/models`, so this
+  is upstream capacity, not a bad name.
+- `deepseek-ai/deepseek-v4.1-flash` → also hangs. Several others return
+  **410 Gone** / **404** instantly, so the account can reach the API and
+  only some models are dead or stuck.
+- `nvidia/nemotron-3.5-lightning-30b-a3b` → **200**: 1.99s non-stream,
+  2.14s stream with 99 `data:` chunks, using the exact backend payload
+  (`temperature 0.2`, `top_p 0.9`, `max_tokens 2048`).
+
+Action: `app.ai.nvidia.chat-model` is now
+`nvidia/nemotron-3.5-lightning-30b-a3b`. **Requires a backend restart.**
+Restore `openai/gpt-oss-20b` once it answers again — the change is one
+line, no code touched.
+
+Compatibility note: this model streams `delta.reasoning_content`
+alongside `delta.content`. `NvidiaLlmClient` reads only
+`choices[0].delta.content` and skips non-string/missing nodes, so
+reasoning chunks are ignored and the "stream produced no content" guard
+still means what it says. No code change needed.
+
+Related: the 403-on-SSE shape is worth remembering as a failure mode.
+`SseEmitter` does not commit the response on the initial dispatch, so if
+the async work finishes before the first `send()` and the ASYNC dispatch
+is rejected, the client sees a bare 403 with no body rather than a
+stream that died mid-way. `JwtAuthenticationFilter` is a
+`OncePerRequestFilter`, which skips ASYNC dispatch by default — the
+security context is therefore *not* re-established on the async leg.
+Not reproducible once the LLM answers promptly, and not fixed here; if
+SSE 403s come back with a healthy LLM, that is the first thing to test.
+
+## 23.2 `InvalidCredentialsException` returned 500 instead of 401
+
+`auth/exception/InvalidCredentialsException` had no `@ExceptionHandler`,
+so a wrong password or unknown email fell through to
+`GlobalExceptionHandler`'s catch-all: `500 INTERNAL_SERVER_ERROR` /
+"An unexpected error occurred". Added a dedicated handler →
+`401 INVALID_CREDENTIALS` / "Invalid email or password", logged at WARN
+(a rejected credential is not a server error). `./gradlew compileJava`
+→ `BE_EXIT=0`. Needs the same restart.
+
+Verified working, in this order, against the running instance:
+`POST /auth/login` (200 + tokens), `GET /auth/me` (200), `GET /documents`
+(200, READY pdfs), `POST /auth/refresh` with a valid token (200).
+
+Known remaining gap: `RefreshTokenService` throws bare
+`IllegalArgumentException("Invalid refresh token")` for unknown/revoked/
+expired tokens, which also lands in the catch-all → 500 instead of 401.
+Deliberately not mapped globally — `IllegalArgumentException` is how
+genuine programming bugs show up. Correct fix is a typed
+`RefreshTokenRejectedException` when that path is next touched.
+**Superseded by section 24 — it is now mapped globally.** Read 24 before
+reverting this.
+
+# 24. NON-PDF UPLOAD RETURNED 500 — `IllegalArgumentException` IS NOW MAPPED
+
+Found from the Android side, not from a backend test. The client's file
+picker offered `application/pdf` **and** `text/plain`; a `.txt` pick
+produced `500 INTERNAL_SERVER_ERROR` / "An unexpected error occurred"
+and the new `UploadWorker` reported it as an opaque server failure.
+
+Reproduced against the live instance with `test4@gmail.com`:
+
+| Request | Result |
+| --- | --- |
+| `POST /api/v1/documents`, 382-byte `probe.pdf`, `type=application/pdf` | `201` → status `READY` |
+| `POST /api/v1/documents`, 2300-byte `probe.txt`, `type=text/plain` | `500` `INTERNAL_SERVER_ERROR` |
+
+## 24.1 Cause
+
+`DocumentService.validateFile` (line 255) is PDF-only and signals every
+caller-correctable problem with a bare `IllegalArgumentException` —
+empty file, `> MAX_FILE_SIZE` (10 MB, line 33), and
+`"Only PDF files are supported"`. None of those had a handler, so all
+three reached the catch-all `@ExceptionHandler(Exception.class)` and were
+logged at ERROR as if the server had broken.
+
+## 24.2 Fix
+
+`common/exception/GlobalExceptionHandler` gained
+`handleIllegalArgument` → `400 VALIDATION_ERROR` carrying the exception
+message, logged at WARN. This **reverses the decision recorded at the end
+of 23.2**. Reason: leaving it unmapped meant every validation rule in
+`DocumentService` was unreachable as a useful client error, and the
+Android upload queue surfaced "An unexpected error occurred" for what is
+really "pick a smaller file". Accepted tradeoff: a genuine programming
+bug that throws `IllegalArgumentException` now also reports 400 instead
+of 500 — visible in the WARN line with the message and path, not silent.
+
+Side effect worth knowing: the 23.2 refresh-token gap is closed by the
+same handler, but as `400` rather than the ideal `401`. A typed
+`RefreshTokenRejectedException` is still the right fix if that path is
+touched.
+
+`./gradlew compileJava` → `BACKEND_EXIT=0`. **Needs a restart** before
+either running instance serves the new code.
+
+## 24.2.1 Restart + live verification (2026-11-01)
+
+The IDE-run instance (pid 31996, `idea_rt.jar` javaagent) was stopped at
+the user's request and replaced with `./gradlew bootRun` — **pid 6692,
+terminal-owned**. Consequence to remember: IntelliJ's run window no longer
+controls the server, and starting the IDE config again will fail with
+"port 8080 already in use" until this process is stopped
+(`Stop-Process -Id <pid from netstat -ano | grep :8080>`).
+
+| Probe | Result |
+| --- | --- |
+| `POST /documents` with `text/plain` | `400 VALIDATION_ERROR` / "Only PDF files are supported" (was 500) |
+| `POST /auth/login` unknown email | `401 INVALID_CREDENTIALS` |
+| `POST /documents` 382-byte PDF | `201` → `READY`, then `DELETE` → `204` |
+| `POST /auth/refresh` with garbage token | `400 VALIDATION_ERROR` / "Invalid refresh token" — the 23.2 gap closed as predicted, 400 rather than 401 |
+| `POST /rag/ask` | `200` in **10.2 s** with `[S1][S2]` citations — confirms the 23.1 `nvidia/nemotron-3.5-lightning-30b-a3b` swap, which had never run live |
+| `POST /rag/ask/stream` | `event:sources` ×1, `event:token` ×60, `event:done` ×1 (2395 bytes). Frames are `event:token` with **no space** after the colon — don't grep for `event: ` |
+
+Left in the user's library by earlier interrupted uploads:
+`b28f9360-92ba-48cf-8d5b-5c7b4d1ccf93` (`resume_srivastava_rahul.pdf`) has
+sat in status `UPLOADED` since 2026-10-31, so the Android drawer renders it
+as "Queued" forever. `POST /documents/{id}/reprocess` or a delete clears it;
+not touched here because it is the user's data.
+
+## 24.3 Client-side changes made with this
+
+- `feature/shell/AppShell.kt`: `DOCUMENT_MIME_TYPES` is now
+  `arrayOf("application/pdf")` — the picker must not offer what the
+  server rejects, and the in-app viewer is `PdfRenderer` anyway.
+- `data/repository/UploadStager.kt`: `stage()` returns a
+  `StagedUpload` (`Ready` / `TooLarge` / `Unreadable`) instead of
+  `File?`, and reads `OpenableColumns.SIZE` **before** copying so a
+  40 MB PDF fails in one query instead of after a multi-minute upload.
+  `MAX_BYTES = 10 MiB` mirrors `DocumentService.MAX_FILE_SIZE` — if the
+  server cap changes, change both.
+
+See the Android plan, section 14, for the upload-queue work this surfaced.
+
+
 

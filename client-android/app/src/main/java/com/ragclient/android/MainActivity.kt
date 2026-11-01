@@ -5,7 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import com.ragclient.android.core.designsystem.RagClientTheme
-import com.ragclient.android.navigation.AppNavHost
+import com.ragclient.android.navigation.RagRoot
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
@@ -16,7 +16,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             RagClientTheme {
-                AppNavHost()
+                RagRoot()
             }
         }
     }

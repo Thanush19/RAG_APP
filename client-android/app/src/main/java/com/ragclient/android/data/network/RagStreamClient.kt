@@ -28,7 +28,8 @@ import javax.inject.Singleton
 @Singleton
 class RagStreamClient @Inject constructor(
     private val client: OkHttpClient,
-    private val json: Json
+    private val json: Json,
+    @BaseUrl private val baseUrl: String
 ) {
 
     fun askStream(
@@ -44,7 +45,7 @@ class RagStreamClient @Inject constructor(
             )
 
             val request = Request.Builder()
-                .url(BASE_URL + "api/v1/rag/ask/stream")
+                .url(baseUrl + "api/v1/rag/ask/stream")
                 .header("Accept", "text/event-stream")
                 .post(bodyJson.toRequestBody("application/json".toMediaType()))
                 .build()
@@ -127,12 +128,6 @@ class RagStreamClient @Inject constructor(
 
             awaitClose { eventSource.cancel() }
         }
-
-    private companion object {
-        // BuildConfig is not visible from this generic spot; reuse the
-        // same constant source as NetworkModule.
-        val BASE_URL: String = com.ragclient.android.BuildConfig.API_BASE_URL
-    }
 }
 
 @kotlinx.serialization.Serializable

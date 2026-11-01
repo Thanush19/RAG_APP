@@ -19,8 +19,38 @@ android {
         versionName = "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
 
-        buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:8080/\"")
+    flavorDimensions += "environment"
+
+    // Base URL is a build-time knob, not a source edit: pass
+    // -Prag.prodBaseUrl=https://api.yourhost/ (or set it in gradle.properties).
+    val devBaseUrl = providers.gradleProperty("rag.devBaseUrl")
+        .getOrElse("http://127.0.0.1:8080/")
+    val prodBaseUrl = providers.gradleProperty("rag.prodBaseUrl")
+        // RFC-2606 .invalid never resolves, so an unconfigured prod build
+        // fails with the client's own "can't reach the server" copy instead of
+        // silently talking to somebody else's host.
+        .getOrElse("https://api.example.invalid/")
+
+    productFlavors {
+        create("dev") {
+            dimension = "environment"
+            applicationIdSuffix = ".dev"
+            // 127.0.0.1 works on an emulator AND on a USB device, but only once
+            // the tunnel exists: adb reverse tcp:8080 tcp:8080 (re-run after
+            // replugging). For a phone on the same Wi-Fi, pass
+            // -Prag.devBaseUrl=http://<pc-lan-ip>:8080/.
+            buildConfigField("String", "API_BASE_URL", "\"$devBaseUrl\"")
+            buildConfigField("boolean", "IS_DEV_BUILD", "true")
+        }
+        create("prod") {
+            dimension = "environment"
+            // Cleartext is a dev-only capability (src/dev/AndroidManifest.xml),
+            // so prod must be given an https URL.
+            buildConfigField("String", "API_BASE_URL", "\"$prodBaseUrl\"")
+            buildConfigField("boolean", "IS_DEV_BUILD", "false")
+        }
     }
 
     buildTypes {
@@ -73,7 +103,9 @@ dependencies {
 
     implementation(libs.hilt.android)
     implementation(libs.androidx.hilt.navigation.compose)
+    implementation(libs.androidx.hilt.work)
     ksp(libs.hilt.compiler)
+    ksp(libs.androidx.hilt.compiler)
 
     implementation(libs.retrofit)
     implementation(libs.retrofit.converter.kotlinx)
@@ -88,7 +120,8 @@ dependencies {
     ksp(libs.room.compiler)
 
     implementation(libs.datastore.preferences)
-    implementation(libs.security.crypto)
+
+    implementation(libs.work.runtime.ktx)
 
     testImplementation(libs.junit)
     testImplementation(libs.turbine)

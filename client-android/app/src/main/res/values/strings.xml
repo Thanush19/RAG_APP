@@ -1,4 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">RAG Client</string>
+    <string name="app_name">Thagaval</string>
+
+    <string name="upload_channel_name">Uploads</string>
+    <string name="upload_channel_description">Progress for documents being sent to the server</string>
+    <string name="upload_progress_percent">%1$d%% uploaded</string>
+    <string name="upload_progress">%1$s — %2$d%% uploaded</string>
+    <string name="upload_done_title">Upload complete</string>
+    <string name="upload_done">%1$s uploaded — indexing now</string>
+    <string name="upload_failed_title">Upload failed</string>
+
+    <string name="upload_queued">Queued</string>
+    <string name="upload_cancel">Cancel upload</string>
+    <string name="uploads_section">Uploading</string>
+    <string name="upload_row_percent">%1$d%% uploaded</string>
+    <string name="upload_more_count">Add another (%1$d uploading)</string>
 </resources>

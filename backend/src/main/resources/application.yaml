@@ -60,7 +60,7 @@ app:
       api-key: "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"
       base-url: https://integrate.api.nvidia.com/v1
       embedding-model: nvidia/nemotron-3.5-embed-1b
-      chat-model: openai/gpt-oss-20b
+      chat-model: nvidia/nemotron-3.5-lightning-30b-a3b
       chat-max-tokens: 2048
       connect-timeout-seconds: 10
       read-timeout-seconds: 120

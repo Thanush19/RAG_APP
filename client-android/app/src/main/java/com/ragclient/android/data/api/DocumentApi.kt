@@ -27,6 +27,7 @@ interface DocumentApi {
     @DELETE("api/v1/documents/{documentId}")
     suspend fun delete(@Path("documentId") documentId: String): Unit
 
-    // bytes are fetched through the SSE-style raw OkHttp path in M2
-    // (needs the auth header + blob handling outside Retrofit).
+    /** Raw PDF bytes for the in-app viewer (PdfRenderer consumes these). */
+    @GET("api/v1/documents/{documentId}/bytes")
+    suspend fun bytes(@Path("documentId") documentId: String): okhttp3.ResponseBody
 }

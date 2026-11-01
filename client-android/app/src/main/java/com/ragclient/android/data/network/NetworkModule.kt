@@ -29,18 +29,27 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun okHttpClient(authInterceptor: AuthInterceptor): OkHttpClient =
+    fun okHttpClient(
+        authInterceptor: AuthInterceptor,
+        tokenAuthenticator: TokenAuthenticator
+    ): OkHttpClient =
         OkHttpClient.Builder()
             .addInterceptor(authInterceptor)
+            .authenticator(tokenAuthenticator)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS) // SSE streams; per-call timeouts elsewhere
             .build()
 
     @Provides
     @Singleton
-    fun retrofit(client: OkHttpClient, json: Json): Retrofit =
+    @BaseUrl
+    fun baseUrl(): String = BuildConfig.API_BASE_URL
+
+    @Provides
+    @Singleton
+    fun retrofit(client: OkHttpClient, json: Json, @BaseUrl baseUrl: String): Retrofit =
         Retrofit.Builder()
-            .baseUrl(BuildConfig.API_BASE_URL)
+            .baseUrl(baseUrl)
             .client(client)
             .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
             .build()

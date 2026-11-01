@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+        Merged into the dev variants only. Local backends are plain http://, and
+        API 28+ blocks cleartext by default. The prod flavor has no equivalent
+        file, so a release build cannot fall back to http:// even by mistake.
+    -->
+    <application android:usesCleartextTraffic="true" />
+
+</manifest>

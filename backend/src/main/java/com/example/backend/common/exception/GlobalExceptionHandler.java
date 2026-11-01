@@ -1,5 +1,6 @@
 package com.example.backend.common.exception;
 
+import com.example.backend.auth.exception.InvalidCredentialsException;
 import com.example.backend.common.response.ApiErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -45,6 +46,33 @@ public class GlobalExceptionHandler {
         );
     }
 
+    /**
+     * Services throw this for caller-correctable problems (unsupported file
+     * type, oversized upload, blank refresh token). Without it the catch-all
+     * below turns them into 500s.
+     */
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ApiErrorResponse> handleIllegalArgument(
+            IllegalArgumentException exception,
+            HttpServletRequest request
+    ) {
+
+        log.warn(
+                "Rejected request. requestId={}, path={}, reason={}",
+                MDC.get("requestId"),
+                request.getRequestURI(),
+                exception.getMessage()
+        );
+
+        return buildResponse(
+                HttpStatus.BAD_REQUEST,
+                "VALIDATION_ERROR",
+                exception.getMessage(),
+                request,
+                List.of()
+        );
+    }
+
     @ExceptionHandler(EntityNotFoundException.class)
     public ResponseEntity<ApiErrorResponse> handleEntityNotFound(
             EntityNotFoundException exception,
@@ -84,6 +112,27 @@ public class GlobalExceptionHandler {
         return buildResponse(
                 HttpStatus.CONFLICT,
                 "EMAIL_ALREADY_REGISTERED",
+                exception.getMessage(),
+                request,
+                List.of()
+        );
+    }
+
+    @ExceptionHandler(InvalidCredentialsException.class)
+    public ResponseEntity<ApiErrorResponse> handleInvalidCredentials(
+            InvalidCredentialsException exception,
+            HttpServletRequest request
+    ) {
+
+        log.warn(
+                "Rejected credentials. requestId={}, path={}",
+                MDC.get("requestId"),
+                request.getRequestURI()
+        );
+
+        return buildResponse(
+                HttpStatus.UNAUTHORIZED,
+                "INVALID_CREDENTIALS",
                 exception.getMessage(),
                 request,
                 List.of()

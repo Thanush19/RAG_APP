@@ -1,34 +1,82 @@
 package com.ragclient.android.feature.search
 
+import androidx.lifecycle.viewModelScope
 import com.ragclient.android.core.mvi.BaseViewModel
+import com.ragclient.android.data.api.RagApi
+import com.ragclient.android.data.api.dto.SearchRequestDto
+import com.ragclient.android.data.network.ApiErrorMapper
+import com.ragclient.android.data.repository.DocumentRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
-
-/** M4 lands search results + tap-to-page deep links via RagApi.search. */
-
-data class SearchState(
-    val query: String = "",
-    val results: List<com.ragclient.android.data.api.dto.RetrievedChunkDto> = emptyList(),
-    val isLoading: Boolean = false
-)
-
-sealed interface SearchIntent {
-    data class QueryChanged(val query: String) : SearchIntent
-    data object Execute : SearchIntent
-}
-
-sealed interface SearchResult
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 @HiltViewModel
 class SearchViewModel @Inject constructor(
-    private val ragApi: com.ragclient.android.data.api.RagApi
+    private val ragApi: RagApi,
+    private val documents: DocumentRepository,
+    private val errorMapper: ApiErrorMapper
 ) : BaseViewModel<SearchState, SearchIntent, SearchResult>(SearchState()) {
 
     override fun handle(intent: SearchIntent) {
-        if (intent is SearchIntent.QueryChanged) {
-            setState { copy(query = intent.query) }
+        when (intent) {
+            is SearchIntent.ChangeQuery ->
+                reduceResult(SearchResult.QueryChanged(intent.query))
+
+            is SearchIntent.ChangeMinScore ->
+                reduceResult(SearchResult.MinScoreChanged(intent.minScore))
+
+            SearchIntent.Clear -> reduceResult(SearchResult.Cleared)
+
+            SearchIntent.Run -> search()
         }
     }
 
-    override fun reduce(state: SearchState, result: SearchResult): SearchState = state
+    private fun search() {
+        val current = state.value
+        if (!current.canSearch) return
+
+        reduceResult(SearchResult.Started)
+        viewModelScope.launch {
+            runCatching {
+                ragApi.search(
+                    SearchRequestDto(
+                        query = current.query.trim(),
+                        topK = RESULTS_LIMIT,
+                        minScore = current.minScore
+                    )
+                )
+            }.onSuccess { response ->
+                val names = documents.observeLibrary().first()
+                    .associate { document -> document.id to document.fileName }
+                reduceResult(
+                    SearchResult.Loaded(
+                        response.results.map { chunk ->
+                            SearchHit(
+                                chunkId = chunk.chunkId,
+                                documentId = chunk.documentId,
+                                pageNumber = chunk.pageNumber,
+                                text = chunk.text,
+                                score = chunk.score,
+                                fileName = names[chunk.documentId] ?: "document"
+                            )
+                        }
+                    )
+                )
+            }.onFailure { error ->
+                reduceResult(
+                    SearchResult.Failed(
+                        errorMapper.describe(error, "Search failed.").message
+                    )
+                )
+            }
+        }
+    }
+
+    override fun reduce(state: SearchState, result: SearchResult): SearchState =
+        SearchReducer.reduce(state, result)
+
+    private companion object {
+        const val RESULTS_LIMIT = 12
+    }
 }

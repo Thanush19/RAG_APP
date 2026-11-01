@@ -34,6 +34,9 @@ interface DocumentCacheDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(items: List<DocumentCacheEntity>)
 
+    @Query("DELETE FROM document_cache WHERE id = :id")
+    suspend fun deleteById(id: String)
+
     @Query("DELETE FROM document_cache")
     suspend fun clear()
 }
