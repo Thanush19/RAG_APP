@@ -26,7 +26,9 @@ data class UploadJob(
     val workId: String,
     val fileName: String,
     val percent: Int,
-    val running: Boolean
+    val running: Boolean,
+    /** The staged copy's path, carried as a tag so previews can find it. */
+    val stagedPath: String? = null
 )
 
 /**
@@ -113,7 +115,8 @@ class UploadQueue @Inject constructor(
                         fileName = info.progress
                             .getString(UploadWorker.KEY_FILE_NAME) ?: PREPARING,
                         percent = info.progress.getInt(UploadWorker.KEY_PROGRESS, 0),
-                        running = info.state == WorkInfo.State.RUNNING
+                        running = info.state == WorkInfo.State.RUNNING,
+                        stagedPath = info.tags.firstOrNull { it.startsWith("/") }
                     )
                 }
         }

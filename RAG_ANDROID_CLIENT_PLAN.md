@@ -1247,3 +1247,125 @@ second time (with no keyboard up) exits the app, and the installed package is
 so `am start -n com.ragclient.android/.MainActivity` fails with "Activity class
 does not exist" — use the `.dev` package name for adb launches.
 
+
+## 20. Phase G5 — uploads on a real device found four defects (2026-11-01)
+
+### 20.1 What was supposed to happen
+Upload a PDF from the drawer, watch the notification, swipe the app away, and
+confirm WorkManager finishes the job. Every step of that produced a defect, so
+this section is mostly the record of what was wrong and what fixed it.
+
+### 20.2 Backend: the 10 MB limit was unreachable
+`DocumentService.MAX_FILE_SIZE` said 10 MB, but Tomcat's default multipart cap
+is **1 MB per file**, so anything real was rejected before the service saw it —
+and the rejection did not look like our error envelope.
+
+- `common/config/UploadSizeConfig.java` (new) registers a
+  `jakarta.servlet.MultipartConfigElement(tmpdir, 10 MB, 11 MB, 0)`. Spring Boot
+  4 **removed** `MultipartConfigFactory`, so the element is built with its own
+  constructor. The request cap is deliberately 1 MB above the file cap so a
+  multipart with its boundary overhead still reaches the file check.
+- `GlobalExceptionHandler` now handles `MaxUploadSizeExceededException` →
+  `413 FILE_TOO_LARGE` with the limit interpolated from `UploadSizeConfig`.
+  `HttpStatus.PAYLOAD_TOO_LARGE` is deprecated in Spring 7; `CONTENT_TOO_LARGE`
+  is the same code.
+- The caps live in Java, **not** in `application.yaml`, because that file holds
+  live Neon/NVIDIA/Qdrant/Cloudinary credentials and is already in git history —
+  never print it and never push this repo to a public remote.
+- Verified with curl against the running backend: 9,442,104-byte PDF → `201`,
+  12,583,789-byte PDF → `413` + `FILE_TOO_LARGE`.
+
+### 20.3 Client fixes
+1. **The dedupe key was fictional.** `enqueue()` used `System.currentTimeMillis()`
+   as the unique-work name, so `ExistingWorkPolicy.KEEP` could never match
+   anything. The name is now the staged file's absolute path, which is unique
+   per pick and stable per job.
+2. **Notifications are keyed on the work id, not the upload key.**
+   `getForegroundInfo()` posts the ongoing row *before* the first progress tick,
+   and `WorkInfo` never exposes input data — so a UI holding only the work id
+   had no way to name the row it needed to clear. `UploadNotifier` methods now
+   take `jobId` (`params.id.toString()`, stable across process death) and
+   `UploadQueue.cancel()` dismisses by that id. `KEY_UPLOAD_KEY` is gone.
+3. **`runCatching` was swallowing `CancellationException`.** `DocumentRepository.failed()`
+   now rethrows it, so coroutine cancellation stops masquerading as a network
+   failure.
+4. **Staged copies leaked.** Cancelling or failing an upload left the whole file
+   in `filesDir/uploads/`, which the system never trims — 36 MB after four test
+   picks. Three paths now clean up: the `CancellationException` catch in
+   `UploadWorker.doWork()` (`CoroutineWorker.onStopped()` is **final**, so it
+   cannot be overridden — that was a compile error, not a design choice),
+   `handleFailure()` for terminal failures, and `pruneOrphanStagedFiles()` on
+   every enqueue for jobs cancelled while parked in backoff, which have no live
+   worker at all. Pruning needs to know which copies a live job owns: the staged
+   path is added as a second **tag** (`addTag(uniqueName)`), because tags *are*
+   visible on `WorkInfo`. `UploadJob.stagedPath` reads it back.
+   The lookup uses `getWorkInfosByTagFlow(...).first()` inside
+   `withContext(Dispatchers.IO)` — `getWorkInfosByTagBlocking` no longer exists.
+
+### 20.4 Verification (device `RZCXB0FWFNW`)
+- Orphan sweep: `files/uploads` held 4 directories / 36 MB → after one enqueue,
+  only the live `1793512611279` (9.2 MB) → empty after success.
+- Cancel while RUNNING (drawer row `100% uploaded`, `content-desc="Cancel
+  upload"` at `[762,1048][813,1099]`): after the tap, `dumpsys notification
+  --noredact | grep NotificationRecord.*ragclient` returns **nothing ongoing**
+  and `files/uploads` is empty. Terminal rows keep `AUTO_CANCEL` and no
+  `ONGOING_EVENT`.
+- Failure path proved itself by accident: the test account hit the backend's
+  50 MB per-user storage quota, the row ended as a failed notification reading
+  "Storage limit exceeded. Maximum storage per user is 50 MB.", and the staged
+  copy was deleted by the new `handleFailure()` cleanup.
+- Logcat confirms the tag wiring: `tags={ …UploadWorker, document-upload,
+  /data/user/0/com.ragclient.android.dev/files/uploads/1793512746398/thagaval_death_test.pdf }`.
+- Earlier in the phase: WorkManager survived a hard process kill (new pid within
+  1.5 s, "Upload complete" posted from the fresh process). `am kill` is a no-op
+  while an expedited job holds the process important — use
+  `adb shell run-as com.ragclient.android.dev kill -9 <pid>`.
+
+### 20.5 Still open after G5
+- **Retry creates duplicates.** A retried upload after process inserted the same
+  file twice (2 × `READY` rows); the backend has no idempotency key per upload.
+- The app **fell back to the login screen** after a backend restart, with no JWT
+  errors in the server log — the client's refresh path deserves its own look.
+- Test documents (7 × `thagaval_*.pdf`, ~47.8 MB) were deleted from the account
+  to free quota. The user's own stuck rows were left alone:
+  `b28f9360-92ba-48cf-8d5b-5c7b4d1ccf93` and three other `UPLOADED` documents
+  still need a reprocess-or-delete decision.
+- DocumentsUI automation: `Add document` row at `(464,1068)`, the picker needs
+  ~8 swipes to reach `thagaval_*`, its tile taps at `(200,2050)`, and a
+  MediaStore row pushed with `adb push` stays invisible until
+  `content call --uri content://media/external/file --method scan_file --arg <path>`.
+
+## 21. Preview of a file that is still uploading (2026-11-01)
+
+### 21.1 Request
+"in AppShell, add preview for this file" — the only drawer row without a preview
+was the in-progress upload row (library documents already open the viewer).
+
+### 21.2 Implementation
+- `UploadJob.stagedPath` (from the tag described in §20.3.4) carries the staged
+  file to the UI.
+- `Routes.STAGED_VIEWER_PATTERN = "viewerStaged/{directory}/{name}"` and
+  `Routes.stagedViewer(path)` split the staging layout
+  `uploads/<millis>/<sanitised name>`. Those two segments are generated by
+  `UploadStager.sanitize()` plus `System.currentTimeMillis()`, so they only ever
+  contain `[A-Za-z0-9._-]` and digits — no percent-encoding of `/` is needed,
+  which is the usual way navigation breaks on file paths.
+- `ViewerViewModel` gained `ARG_DIRECTORY`/`ARG_NAME`; when they are present it
+  calls `PdfRepository.openStaged(directory, name)` instead of the
+  server-backed `open(documentId)`.
+- `PdfRepository.openStaged()` canonicalises and requires
+  `file.parentFile == uploadsRoot && file.isFile` — the arguments arrive
+  through a deep link, i.e. untrusted input, even though our own staging code
+  wrote them. `rendererFor(file)` is now shared with `open()`.
+- `UploadRow`'s left column is `clip(RoundedCornerShape(8.dp)).clickable`, the
+  same tap-to-open shape as `DocumentRow`; no new visible control, the Cancel
+  button is untouched.
+- `RoutesTest` pins the path→route split and the blank-name case.
+
+### 21.3 Verification status
+`assembleDevDebug testDevDebugUnitTest` → `CLIENT_EXIT=0`, `RoutesTest` green.
+**On-device check is outstanding**: the phone dropped off adb (`No connected
+devices!`) before `installDevDebug`, so the preview tap, the viewer page render
+and the "file vanished mid-preview" case have not been exercised yet. Reconnect
+the device, then `./gradlew installDevDebug`, pick a large PDF, and tap the
+upload row while it is still transferring.

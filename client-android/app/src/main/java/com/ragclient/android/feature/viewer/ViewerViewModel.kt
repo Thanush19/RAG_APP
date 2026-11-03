@@ -64,6 +64,12 @@ class ViewerViewModel @Inject constructor(
     private val documentId: String =
         savedStateHandle.get<String>(ARG_DOCUMENT).orEmpty()
 
+    private val stagedDirectory: String =
+        savedStateHandle.get<String>(ARG_DIRECTORY).orEmpty()
+
+    private val stagedName: String =
+        savedStateHandle.get<String>(ARG_NAME).orEmpty()
+
     private val startPage: Int =
         (savedStateHandle.get<Int>(ARG_PAGE) ?: 1) - 1
 
@@ -80,7 +86,8 @@ class ViewerViewModel @Inject constructor(
     }
 
     private fun load() {
-        if (documentId.isBlank()) {
+        val staged = stagedDirectory.isNotBlank() && stagedName.isNotBlank()
+        if (!staged && documentId.isBlank()) {
             reduceResult(ViewerResult.Failed("No document selected."))
             return
         }
@@ -88,21 +95,24 @@ class ViewerViewModel @Inject constructor(
         viewModelScope.launch {
             opened?.close()
             opened = null
-            pdfRepository.open(documentId)
-                .onSuccess { handle ->
-                    opened = handle
-                    reduceResult(ViewerResult.Opened(handle.pageCount, startPage))
-                }
-                .onFailure { error ->
-                    reduceResult(
-                        ViewerResult.Failed(
-                            documentRepository.describeError(
-                                error,
-                                "This PDF could not be opened."
-                            )
+            val outcome = if (staged) {
+                pdfRepository.openStaged(stagedDirectory, stagedName)
+            } else {
+                pdfRepository.open(documentId)
+            }
+            outcome.onSuccess { handle ->
+                opened = handle
+                reduceResult(ViewerResult.Opened(handle.pageCount, startPage))
+            }.onFailure { error ->
+                reduceResult(
+                    ViewerResult.Failed(
+                        documentRepository.describeError(
+                            error,
+                            "This PDF could not be opened."
                         )
                     )
-                }
+                )
+            }
         }
     }
 
@@ -133,5 +143,7 @@ class ViewerViewModel @Inject constructor(
     companion object {
         const val ARG_DOCUMENT = "documentId"
         const val ARG_PAGE = "page"
+        const val ARG_DIRECTORY = "directory"
+        const val ARG_NAME = "name"
     }
 }

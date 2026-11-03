@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
@@ -141,6 +142,10 @@ fun AppShell(
                     pickDocuments()
                 },
                 onCancelUpload = { viewModel.onIntent(ShellIntent.CancelUpload(it)) },
+                onPreviewUpload = { path ->
+                    closeDrawer()
+                    Routes.stagedViewer(path)?.let { navController.navigate(it) }
+                },
                 onOpenDocument = { id ->
                     closeDrawer()
                     navController.navigate(Routes.viewer(id, 1))
@@ -224,6 +229,16 @@ fun AppShell(
                             type = NavType.IntType
                             defaultValue = 1
                         }
+                    )
+                ) {
+                    ViewerScreen(onBack = { navController.popBackStack() })
+                }
+
+                composable(
+                    route = Routes.STAGED_VIEWER_PATTERN,
+                    arguments = listOf(
+                        navArgument(ViewerViewModel.ARG_DIRECTORY) { type = NavType.StringType },
+                        navArgument(ViewerViewModel.ARG_NAME) { type = NavType.StringType }
                     )
                 ) {
                     ViewerScreen(onBack = { navController.popBackStack() })
@@ -315,6 +330,7 @@ private fun AppDrawer(
     onDeleteChat: (String) -> Unit,
     onAddDocument: () -> Unit,
     onCancelUpload: (String) -> Unit,
+    onPreviewUpload: (String) -> Unit,
     onOpenDocument: (String) -> Unit,
     onAskDocument: (String) -> Unit,
     onDeleteDocument: (String) -> Unit,
@@ -375,7 +391,11 @@ private fun AppDrawer(
             if (state.uploads.isNotEmpty()) {
                 item { SectionLabel(stringResource(R.string.uploads_section)) }
                 items(state.uploads, key = { it.workId }) { job ->
-                    UploadRow(job = job, onCancel = { onCancelUpload(job.workId) })
+                    UploadRow(
+                        job = job,
+                        onCancel = { onCancelUpload(job.workId) },
+                        onPreview = { job.stagedPath?.let(onPreviewUpload) }
+                    )
                 }
             }
 
@@ -483,14 +503,23 @@ private fun DrawerHint(text: String) {
 }
 
 @Composable
-private fun UploadRow(job: UploadJob, onCancel: () -> Unit) {
+private fun UploadRow(
+    job: UploadJob,
+    onCancel: () -> Unit,
+    onPreview: () -> Unit
+) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
     ) {
-        Column(modifier = Modifier.weight(1f)) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(8.dp))
+                .clickable(onClick = onPreview)
+        ) {
             Text(
                 text = job.fileName,
                 style = AppType.Body,

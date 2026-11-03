@@ -54,11 +54,30 @@ class PdfRepository @Inject constructor(
             .mapCatching { bytes ->
                 val file = File(context.cacheDir, "pdf-$documentId.pdf")
                 file.writeBytes(bytes)
-                val descriptor = ParcelFileDescriptor.open(
-                    file,
-                    ParcelFileDescriptor.MODE_READ_ONLY
-                )
-                OpenedPdf(descriptor, PdfRenderer(descriptor))
+                rendererFor(file)
             }
+    }
+
+    /**
+     * A staged upload is a local file that has no server copy yet, so the
+     * drawer can preview it while the bytes are still moving. The path arrives
+     * as navigation arguments, which is untrusted input even when our own
+     * staging code wrote it, so it is confined to the uploads directory.
+     */
+    suspend fun openStaged(directory: String, name: String): Result<OpenedPdf> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val root = File(context.filesDir, "uploads").canonicalFile
+                val file = File(root, "$directory${File.separator}$name").canonicalFile
+                require(file.parentFile == root && file.isFile) {
+                    "That preview is no longer available."
+                }
+                rendererFor(file)
+            }
+        }
+
+    private fun rendererFor(file: File): OpenedPdf {
+        val descriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+        return OpenedPdf(descriptor, PdfRenderer(descriptor))
     }
 }
