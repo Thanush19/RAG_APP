@@ -206,7 +206,7 @@ private fun MessageRow(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Text(
-                text = displayAnswer(message.text),
+                text = answerMarkup(displayAnswer(message.text)),
                 style = AppType.AnswerBody,
                 color = MaterialTheme.colorScheme.onBackground
             )
@@ -229,7 +229,10 @@ private fun StreamingRow(
     ) {
         Row(verticalAlignment = Alignment.Bottom) {
             Text(
-                text = displayAnswer(text.ifBlank { "Thinking" }),
+                // Re-parsed from the whole buffer on every token rather than
+                // incrementally, which is what keeps a half-arrived `**` from
+                // ever being shown.
+                text = answerMarkup(displayAnswer(text.ifBlank { "Thinking" }), streaming = true),
                 style = AppType.AnswerBody,
                 color = MaterialTheme.colorScheme.onBackground
             )
