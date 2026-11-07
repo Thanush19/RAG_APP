@@ -6,6 +6,12 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -28,7 +34,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -54,7 +59,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -76,12 +80,18 @@ import com.ragclient.android.core.designsystem.AppColors
 import com.ragclient.android.core.designsystem.AppIcons
 import com.ragclient.android.core.designsystem.AppShapes
 import com.ragclient.android.core.designsystem.AppType
+import com.ragclient.android.core.designsystem.ConfirmAction
+import com.ragclient.android.core.designsystem.ConfirmDialog
+import com.ragclient.android.core.designsystem.color
+import com.ragclient.android.core.designsystem.label
 import com.ragclient.android.data.repository.LibraryDocument
 import com.ragclient.android.data.storage.Session
 import com.ragclient.android.data.upload.UploadJob
 import com.ragclient.android.domain.model.DocumentStatus
 import com.ragclient.android.feature.chat.ChatScreen
 import com.ragclient.android.feature.chat.ChatViewModel
+import com.ragclient.android.feature.chats.ChatsScreen
+import com.ragclient.android.feature.documents.DocumentsScreen
 import com.ragclient.android.feature.profile.ProfileScreen
 import com.ragclient.android.feature.search.SearchScreen
 import com.ragclient.android.navigation.Routes
@@ -186,20 +196,28 @@ fun AppShell(
         Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
             topBar = {
-                ShellTopBar(
-                    onMenu = { scope.launch { drawerState.open() } },
-                    onNewChat = { openChat(Routes.chat(Routes.CHAT_NEW)) },
-                    onSearch = { navController.navigate(Routes.SEARCH) }
-                )
+                ShellTopBar(onMenu = { scope.launch { drawerState.open() } })
             }
         ) { padding ->
-            NavHost(
-                navController = navController,
-                startDestination = Routes.CHAT_LATEST,
+            Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
             ) {
+                // Visible on every screen, so a file picked from the new-chat
+                // canvas shows its progress without opening the drawer.
+                state.uploads.firstOrNull()?.let { job ->
+                    UploadStrip(
+                        job = job,
+                        onCancel = { viewModel.onIntent(ShellIntent.CancelUpload(job)) }
+                    )
+                }
+                Box(modifier = Modifier.weight(1f)) {
+                    NavHost(
+                        navController = navController,
+                        startDestination = Routes.CHAT_LATEST,
+                        modifier = Modifier.fillMaxSize()
+                    ) {
                 composable(
                     route = Routes.CHAT_PATTERN,
                     arguments = listOf(
@@ -217,6 +235,10 @@ fun AppShell(
                     ChatScreen(
                         onOpenSource = { documentId, page ->
                             navController.navigate(Routes.viewer(documentId, page))
+                        },
+                        onUploadDocument = { pickDocuments() },
+                        onOpenDocumentChat = { documentId ->
+                            openChat(Routes.chatForDocument(documentId))
                         }
                     )
                 }
@@ -233,7 +255,35 @@ fun AppShell(
                 }
 
                 composable(Routes.PROFILE) {
-                    ProfileScreen(viewModel = viewModel)
+                    ProfileScreen(
+                        viewModel = viewModel,
+                        onOpenDocuments = { navController.navigate(Routes.DOCUMENTS) },
+                        onOpenChats = { navController.navigate(Routes.CHATS) }
+                    )
+                }
+
+                composable(Routes.CHATS) {
+                    ChatsScreen(
+                        viewModel = viewModel,
+                        onBack = { navController.popBackStack() },
+                        // Push, not openChat: the manager must stay under the
+                        // thread so BACK returns to the list, not the launcher.
+                        onOpenChat = { navController.navigate(Routes.chat(it)) },
+                        onNewChat = { navController.navigate(Routes.chat(Routes.CHAT_NEW)) }
+                    )
+                }
+
+                composable(Routes.DOCUMENTS) {
+                    DocumentsScreen(
+                        viewModel = viewModel,
+                        onBack = { navController.popBackStack() },
+                        onOpenDocument = { navController.navigate(Routes.viewer(it, 1)) },
+                        onAskDocument = { navController.navigate(Routes.chatForDocument(it)) },
+                        onNewChatInDocument = {
+                            navController.navigate(Routes.newChatInDocument(it))
+                        },
+                        onUpload = { pickDocuments() }
+                    )
                 }
 
                 composable(
@@ -258,28 +308,28 @@ fun AppShell(
                 ) {
                     ViewerScreen(onBack = { navController.popBackStack() })
                 }
-            }
+                    }
 
-            state.banner?.let { text ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = padding.calculateTopPadding()),
-                    contentAlignment = Alignment.TopCenter
-                ) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        shape = AppShapes.Card,
-                        modifier = Modifier
-                            .padding(16.dp)
-                            .clickable { viewModel.onIntent(ShellIntent.BannerShown) }
-                    ) {
-                        Text(
-                            text = text,
-                            style = AppType.Body,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
-                        )
+                    state.banner?.let { text ->
+                        Box(
+                            modifier = Modifier.fillMaxWidth(),
+                            contentAlignment = Alignment.TopCenter
+                        ) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                shape = AppShapes.Card,
+                                modifier = Modifier
+                                    .padding(16.dp)
+                                    .clickable { viewModel.onIntent(ShellIntent.BannerShown) }
+                            ) {
+                                Text(
+                                    text = text,
+                                    style = AppType.Body,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -288,11 +338,7 @@ fun AppShell(
 }
 
 @Composable
-private fun ShellTopBar(
-    onMenu: () -> Unit,
-    onNewChat: () -> Unit,
-    onSearch: () -> Unit
-) {
+private fun ShellTopBar(onMenu: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -320,20 +366,8 @@ private fun ShellTopBar(
                 .weight(1f)
                 .padding(start = 4.dp)
         )
-        IconButton(onClick = onSearch) {
-            Icon(
-                imageVector = AppIcons.Search,
-                contentDescription = "Search documents",
-                tint = AppColors.Icon
-            )
-        }
-        IconButton(onClick = onNewChat) {
-            Icon(
-                imageVector = AppIcons.NewChat,
-                contentDescription = "New chat",
-                tint = AppColors.Icon
-            )
-        }
+        // Search and New chat live in the drawer; repeating them here was a
+        // second copy of the same two controls.
     }
 }
 
@@ -360,6 +394,10 @@ private fun AppDrawer(
     var pendingConfirm by remember { mutableStateOf<ConfirmAction?>(null) }
     val askConfirm: (ConfirmAction) -> Unit = { pendingConfirm = it }
 
+    // Both lists open at five rows; "See more" reveals the next five.
+    var chatsShown by remember { mutableStateOf(DrawerPageSize) }
+    var documentsShown by remember { mutableStateOf(DrawerPageSize) }
+
     ModalDrawerSheet(
         drawerContainerColor = MaterialTheme.colorScheme.surface,
         modifier = Modifier.width(330.dp)
@@ -381,7 +419,7 @@ private fun AppDrawer(
             if (state.conversations.isEmpty()) {
                 item { DrawerHint("No chats yet.") }
             } else {
-                items(state.conversations, key = { it.id }) { conversation ->
+                items(state.conversations.take(chatsShown), key = { it.id }) { conversation ->
                     val scopedName = state.documents
                         .firstOrNull { it.id == conversation.scopedDocumentId }
                         ?.fileName
@@ -425,6 +463,11 @@ private fun AppDrawer(
                         }
                     }
                 }
+                if (state.conversations.size > chatsShown) {
+                    item {
+                        SeeMoreRow { chatsShown += DrawerPageSize }
+                    }
+                }
             }
 
             if (state.uploads.isNotEmpty()) {
@@ -466,7 +509,7 @@ private fun AppDrawer(
             if (state.documents.isEmpty()) {
                 item { DrawerHint("Nothing uploaded yet.") }
             } else {
-                items(state.documents, key = { it.id }) { document ->
+                items(state.documents.take(documentsShown), key = { it.id }) { document ->
                     val chatCount = state.conversations.count {
                         it.scopedDocumentId == document.id
                     }
@@ -500,6 +543,11 @@ private fun AppDrawer(
                         },
                         onRetry = { onRetryDocument(document.id) }
                     )
+                }
+                if (state.documents.size > documentsShown) {
+                    item {
+                        SeeMoreRow { documentsShown += DrawerPageSize }
+                    }
                 }
             }
 
@@ -574,6 +622,18 @@ private fun DrawerHint(text: String) {
 }
 
 @Composable
+private fun SeeMoreRow(onClick: () -> Unit) {
+    TextButton(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(text = "See more", style = AppType.Body, color = AppColors.Accent)
+    }
+}
+
+private const val DrawerPageSize = 5
+
+@Composable
 private fun UploadRow(
     job: UploadJob,
     onCancel: () -> Unit,
@@ -621,6 +681,83 @@ private fun UploadRow(
                 tint = AppColors.Icon,
                 modifier = Modifier.size(18.dp)
             )
+        }
+    }
+}
+
+@Composable
+private fun UploadStrip(job: UploadJob, onCancel: () -> Unit) {
+    val transition = rememberInfiniteTransition(label = "upload")
+    val pulse by transition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            tween(700, easing = LinearEasing),
+            RepeatMode.Reverse
+        ),
+        label = "upload-pulse"
+    )
+
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = AppShapes.Card,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 8.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+        ) {
+            Icon(
+                imageVector = AppIcons.Upload,
+                contentDescription = null,
+                tint = AppColors.Accent.copy(alpha = pulse),
+                modifier = Modifier.size(20.dp)
+            )
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 10.dp)
+            ) {
+                Text(
+                    text = job.fileName,
+                    style = AppType.Body,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                if (job.running) {
+                    LinearProgressIndicator(
+                        progress = { (job.percent / 100f).coerceIn(0f, 1f) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 6.dp)
+                            .height(3.dp)
+                    )
+                } else {
+                    LinearProgressIndicator(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 6.dp)
+                            .height(3.dp)
+                    )
+                }
+            }
+            Text(
+                text = if (job.running) "${job.percent}%" else "Queued",
+                style = AppType.Label,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 10.dp)
+            )
+            IconButton(onClick = onCancel) {
+                Icon(
+                    imageVector = AppIcons.Close,
+                    contentDescription = "Cancel upload",
+                    tint = AppColors.Icon,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
         }
     }
 }
@@ -821,47 +958,8 @@ private fun DocumentRow(
     }
 }
 
-private data class ConfirmAction(
-    val title: String,
-    val body: String,
-    val confirmLabel: String,
-    val run: () -> Unit
-)
-
-@Composable
-private fun ConfirmDialog(action: ConfirmAction?, onDismiss: () -> Unit) {
-    if (action == null) return
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(action.title) },
-        text = { Text(action.body) },
-        confirmButton = {
-            TextButton(onClick = { onDismiss(); action.run() }) {
-                Text(action.confirmLabel, color = AppColors.Error)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
-    )
-}
-
 private fun pluralize(count: Int, noun: String): String =
     if (count == 1) "1 $noun" else "$count ${noun}s"
-
-private fun DocumentStatus.color(): Color = when (this) {
-    DocumentStatus.READY -> AppColors.StatusReady
-    DocumentStatus.PROCESSING -> AppColors.StatusProcessing
-    DocumentStatus.FAILED -> AppColors.StatusFailed
-    DocumentStatus.UPLOADED -> AppColors.Muted
-}
-
-private fun DocumentStatus.label(): String = when (this) {
-    DocumentStatus.READY -> "Ready"
-    DocumentStatus.PROCESSING -> "Indexing…"
-    DocumentStatus.FAILED -> "Failed — retry"
-    DocumentStatus.UPLOADED -> "Queued"
-}
 
 /** The backend ingests PDFs only (`DocumentService.validateFile`), so the picker must not offer more. */
 private val DOCUMENT_MIME_TYPES = arrayOf("application/pdf")

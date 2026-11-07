@@ -9,6 +9,8 @@ object Routes {
     const val CHAT_PATTERN = "chat/{conversationId}?scope={scope}"
     const val SEARCH = "search"
     const val PROFILE = "profile"
+    const val CHATS = "chats"
+    const val DOCUMENTS = "documents"
     const val VIEWER_PATTERN = "viewer/{documentId}/{page}"
     const val STAGED_VIEWER_PATTERN = "viewerStaged/{directory}/{name}"
 

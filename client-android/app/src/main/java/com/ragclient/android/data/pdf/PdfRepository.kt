@@ -3,6 +3,7 @@ package com.ragclient.android.data.pdf
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
+import android.util.LruCache
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import com.ragclient.android.data.repository.DocumentRepository
@@ -59,6 +60,32 @@ class PdfRepository @Inject constructor(
     }
 
     /**
+     * First page at card width for the documents manager. The bytes are the
+     * same file the viewer caches, so a card that was opened once costs no
+     * network at all; the bitmap cache keeps list recompositions cheap.
+     */
+    suspend fun thumbnail(documentId: String, widthPx: Int): Result<ImageBitmap> =
+        withContext(Dispatchers.IO) {
+            thumbnails.get(documentId)?.let { return@withContext Result.success(it) }
+            runCatching {
+                val file = File(context.cacheDir, "pdf-$documentId.pdf")
+                if (!file.isFile) {
+                    file.writeBytes(documents.pdfBytes(documentId).getOrThrow())
+                }
+                val handle = rendererFor(file)
+                try {
+                    handle.render(0, widthPx)
+                } finally {
+                    handle.close()
+                }
+            }.onSuccess { thumbnails.put(documentId, it) }
+        }
+
+    private val thumbnails = object : LruCache<String, ImageBitmap>(THUMBNAIL_CACHE_BYTES) {
+        override fun sizeOf(key: String, value: ImageBitmap): Int = value.width * value.height * 4
+    }
+
+    /**
      * A staged upload is a local file that has no server copy yet, so the
      * drawer can preview it while the bytes are still moving. The path arrives
      * as navigation arguments, which is untrusted input even when our own
@@ -91,3 +118,5 @@ internal fun stagedFile(root: File, directory: String, name: String): File? {
         it.toPath().startsWith(root.canonicalFile.toPath()) && it.isFile
     }
 }
+
+private const val THUMBNAIL_CACHE_BYTES = 8 * 1024 * 1024

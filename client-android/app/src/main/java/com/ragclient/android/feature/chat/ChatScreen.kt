@@ -30,11 +30,15 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
@@ -48,6 +52,7 @@ import com.ragclient.android.core.designsystem.AppIcons
 import com.ragclient.android.core.designsystem.AppShapes
 import com.ragclient.android.core.designsystem.AppType
 import com.ragclient.android.core.designsystem.RagClientTheme
+import com.ragclient.android.data.repository.LibraryDocument
 import com.ragclient.android.domain.model.ChatMessage
 import com.ragclient.android.domain.model.ChatRole
 import com.ragclient.android.domain.model.RagSourceModel
@@ -55,6 +60,8 @@ import com.ragclient.android.domain.model.RagSourceModel
 @Composable
 fun ChatScreen(
     onOpenSource: (documentId: String, pageNumber: Int) -> Unit,
+    onUploadDocument: () -> Unit,
+    onOpenDocumentChat: (documentId: String) -> Unit,
     viewModel: ChatViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -62,7 +69,9 @@ fun ChatScreen(
     ChatContent(
         state = state,
         onIntent = viewModel::onIntent,
-        onOpenSource = onOpenSource
+        onOpenSource = onOpenSource,
+        onUploadDocument = onUploadDocument,
+        onOpenDocumentChat = onOpenDocumentChat
     )
 }
 
@@ -70,7 +79,9 @@ fun ChatScreen(
 private fun ChatContent(
     state: ChatState,
     onIntent: (ChatIntent) -> Unit,
-    onOpenSource: (documentId: String, pageNumber: Int) -> Unit
+    onOpenSource: (documentId: String, pageNumber: Int) -> Unit,
+    onUploadDocument: () -> Unit,
+    onOpenDocumentChat: (documentId: String) -> Unit
 ) {
     val listState = rememberLazyListState()
 
@@ -93,7 +104,14 @@ private fun ChatContent(
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
             if (state.messages.isEmpty() && !state.isGenerating) {
-                item { EmptyCanvas(scopedDocumentName = state.scopedDocumentName) }
+                item {
+                    EmptyCanvas(
+                        scopedDocumentName = state.scopedDocumentName,
+                        documents = state.documents,
+                        onUploadDocument = onUploadDocument,
+                        onOpenDocumentChat = onOpenDocumentChat
+                    )
+                }
             }
 
             items(state.messages, key = { it.id }) { message ->
@@ -132,25 +150,27 @@ private fun ChatContent(
 }
 
 /**
- * The blank-thread screen. Naming the document here is what tells the user
- * they are inside that file's thread rather than asking the whole library.
+ * The blank-thread screen. A scoped thread already knows its file, so it just
+ * names it. An unscoped new chat instead offers the two ways to get a document
+ * into the conversation: upload one, or pick one already in the library.
  */
 @Composable
-private fun EmptyCanvas(scopedDocumentName: String?) {
+private fun EmptyCanvas(
+    scopedDocumentName: String?,
+    documents: List<LibraryDocument>,
+    onUploadDocument: () -> Unit,
+    onOpenDocumentChat: (String) -> Unit
+) {
+    var showDocuments by remember { mutableStateOf(false) }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 90.dp),
+            .padding(top = 60.dp, start = 24.dp, end = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        if (scopedDocumentName == null) {
-            Text(
-                text = "Ask your documents.",
-                style = AppType.Display,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-        } else {
+        if (scopedDocumentName != null) {
             Text(
                 text = "Ask questions from",
                 style = AppType.Body,
@@ -164,16 +184,80 @@ private fun EmptyCanvas(scopedDocumentName: String?) {
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onBackground
             )
+            Text(
+                text = "Only this document is searched, and this thread stays with it.",
+                style = AppType.Body,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            Icon(
+                imageVector = AppIcons.Attach,
+                contentDescription = null,
+                tint = AppColors.Icon,
+                modifier = Modifier.size(40.dp)
+            )
+            OutlinedButton(
+                onClick = onUploadDocument,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Upload new file", style = AppType.Body)
+            }
+            OutlinedButton(
+                onClick = { showDocuments = !showDocuments },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Check existing file", style = AppType.Body)
+            }
+            if (showDocuments) {
+                if (documents.isEmpty()) {
+                    Text(
+                        text = "Nothing uploaded yet.",
+                        style = AppType.Body,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    documents.forEach { document ->
+                        DocumentPickRow(
+                            document = document,
+                            onClick = { onOpenDocumentChat(document.id) }
+                        )
+                    }
+                }
+            }
         }
-        Text(
-            text = if (scopedDocumentName == null) {
-                "Answers cite the exact page they came from."
-            } else {
-                "Only this document is searched, and this thread stays with it."
-            },
-            style = AppType.Body,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+    }
+}
+
+@Composable
+private fun DocumentPickRow(document: LibraryDocument, onClick: () -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        shape = AppShapes.Card,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)
+        ) {
+            Icon(
+                imageVector = AppIcons.Ask,
+                contentDescription = null,
+                tint = AppColors.Icon,
+                modifier = Modifier.size(18.dp)
+            )
+            Text(
+                text = document.fileName,
+                style = AppType.Body,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 10.dp)
+            )
+        }
     }
 }
 
@@ -466,7 +550,9 @@ private fun ChatWithAnswerPreview() {
                 )
             ),
             onIntent = {},
-            onOpenSource = { _, _ -> }
+            onOpenSource = { _, _ -> },
+            onUploadDocument = {},
+            onOpenDocumentChat = {}
         )
     }
 }
@@ -483,7 +569,9 @@ private fun ChatStreamingPreview() {
                 messages = listOf(ChatMessage(1, ChatRole.User, "Explain section 3"))
             ),
             onIntent = {},
-            onOpenSource = { _, _ -> }
+            onOpenSource = { _, _ -> },
+            onUploadDocument = {},
+            onOpenDocumentChat = {}
         )
     }
 }

@@ -1597,7 +1597,8 @@ completes on the next chunk).
   a fresh suspect rather than a confirmed defect. Needs a look before the
   conversation history is considered usable.
   → Resolved the same day in §26.5.1: `launchSingleTop`, and it was never
-  unreproducible, just unnoticed. The markdown point above stays open (§26.8).
+  unreproducible, just unnoticed. The markdown point above was closed on
+  2026-11-07 by §28.
 
 ## 26. Per-document chats: continuity, context, and three ways to delete (2026-11-07)
 
@@ -1730,6 +1731,8 @@ user's IDE session on 8080 was never restarted.
 - §25.5's markdown point stands: the unscoped answer above arrived as bare
   text this time but answers containing `` `code` `` or `**bold` ` still
   render literally (task #34).
+  → Closed the same day by §28: `answerMarkup` renders bold / italic / inline
+  code / bullets / headings, and is streaming-aware by re-parsing the buffer.
 - The cascade on document delete is proven only for its Room half
   (`deleteAllForDocument` on device); the destructive document path itself
   was exercised up to the confirmation dialog and cancelled.
@@ -1838,3 +1841,371 @@ Several library rows render **Queued** forever (`apa-research-paper-template.pdf
 two `Aayush Atul Chandak Resume.pdf` copies) — the stale `UPLOADED` status
 already recorded in the project plan §24.2.1. A `POST /documents/{id}/reprocess`
 or a delete clears them; left alone because it is the user's data.
+
+## 28. Answers are bold, not asterisks: markdown-lite without breaking the stream (2026-11-07)
+
+### 28.1 The ask
+A screenshot of "what are his skills" came back as
+
+```
+- **Languages:** Java, Python, JavaScript, TypeScript, SQL, HTML/CSS
+- **Frameworks:** Spring Boot, React.js, Angular, Node.js, Hibernate, JPA
+```
+
+— the user's question was *why it is not bolded, is this due to streaming,
+and fix it without breaking streaming*.
+
+### 28.2 Diagnosis: streaming was not the cause
+Nothing in the app ever interpreted markdown. `MessageRow` and `StreamingRow`
+painted `displayAnswer(text)` — a plain `String` — straight into `Text`, and
+Compose only styles what an `AnnotatedString` tells it to. So the `**` was
+already doomed before the first SSE token; streaming only makes the *fix*
+harder, because the parser sees a buffer that is always mid-sentence.
+
+### 28.3 Implementation — `feature/chat/AnswerMarkup.kt` (new)
+`internal fun answerMarkup(text: String, streaming: Boolean = false): AnnotatedString`
+
+- **Re-parsed from the whole buffer on every token**, never incrementally.
+  `ChatReducer.TokenReceived` appends to `state.streamingText`, so each frame
+  re-runs the scanner over the complete partial answer. That is what makes the
+  streaming case tractable: there is no parser state to get stuck in, and an
+  answer is a few KB, so the cost is irrelevant next to a recomposition.
+- **`streaming` is the only extra argument** and it answers one question: is an
+  unmatched marker still arriving, or is it the text? While `true`, an open run
+  is styled as if it closed at the end of the buffer and its marker is dropped,
+  so `**Languages:` shows as bold `Languages:` and a lone trailing `*` (the
+  first half of a `**` that has not landed yet) shows as nothing. With `false` —
+  the Room transcript, a stopped stream, a failed one — an unmatched marker is
+  content the model wrote, so it stays visible.
+- Scanner, not regex: `indexOfDelimiter` finds the next `**`, `*` or `` ` ``,
+  then looks for the same token later in the line. Found → style the span; not
+  found and not at the end → emit the marker literally, which is what keeps
+  `2 * 3 * 4` and `resume_srivastava_rahul.pdf` untouched.
+- Single `*` emphasis additionally requires CommonMark flanking (no space just
+  inside either delimiter), otherwise "3 * 4 * 5" would italicise the middle.
+  `_` is deliberately **not** an emphasis delimiter at all — this app prints
+  file names full of underscores.
+- Block pass before the inline pass: `- ` / `* ` / `+ ` become `• `, `## …`
+  becomes a bold line with its hashes dropped, and a ```` ``` ```` fence renders
+  its lines monospace with the fence lines dropped.
+- Deliberately narrow: no nested emphasis, no links, no tables. Anything
+  unrecognised is painted literally rather than half-parsed.
+
+### 28.4 Wiring — `feature/chat/ChatScreen.kt`
+Two call sites, and the flag is the only difference:
+- `MessageRow` (assistant): `answerMarkup(displayAnswer(message.text))`.
+- `StreamingRow`: `answerMarkup(displayAnswer(…), streaming = true)`.
+`displayAnswer` still runs first, so `[S1]` markers are gone before the
+markdown pass. User bubbles are untouched — that text is typed, not generated.
+
+### 28.5 Tests
+`AnswerMarkupTest.kt` (new), 12 cases: bold, plain text untouched, the exact
+device answer shape (bullets + bold labels), inline code, fenced block,
+heading, flanking (`2 * 3 * 4` stays literal, `*emphasis*` becomes italic),
+underscore file names, line breaks survive, an open run styled as closed, a
+finished answer keeping its unclosed marker, and the frame sequence
+`*` → `**` → `**L` → … → `**Languages:**` asserting **no frame contains a
+literal `*`**.
+
+`testDevDebugUnitTest` → `BUILD SUCCESSFUL`, **58** unit tests green (46 + 12).
+Two fixes on the way: `AnnotatedString.Range` exposes `item`/`start`/`end`, not
+`style`/`range`; and my own first assertion expected the markers to survive a
+successful italic parse.
+
+### 28.6 Verification (device `RZCXB0FWFNW`, 2026-11-07)
+`testDevDebugUnitTest` → `BUILD SUCCESSFUL`, **59** unit tests green. Then the
+plain `installDevDebug` build on the phone, on the LAN URL — the phone is back
+on `192.168.1.0/24`, so no `adb reverse` tunnel was needed this time.
+- "what are his skills" streamed and landed as
+  `Rahul Srivastava's skills, as listed in the context, include:` then
+  `• Languages: Java, Python, …` — the crop shows genuine bold on each label,
+  `•` instead of `- `, and **no `*` anywhere** in the `uiautomator` text node.
+- "what projects has he worked on" produced the harder shape,
+  `**Partner Management Portal – Vendor Onboarding** (Spring Boot, Angular,
+  PostgreSQL) –` : the name is bold, the parenthesised stack is untouched.
+  That frame is the proof the scanner pairs runs without eating words.
+- **A scare, resolved:** the first answer rendered `Vendor Onboarding ():`,
+  which looked like the renderer swallowing the text between two adjacent
+  `**` runs. Fetched the raw model answer with a live `POST /api/v1/rag/ask`
+  and the parens are empty in the model's own output. By construction the
+  renderer can only ever drop `*` and `` ` `` — every other character is
+  appended, including a marker it decides is prose. A regression test now pins
+  the adjacent-run shape anyway.
+- **Mid-marker frames are not reachable through this backend.** The client sat
+  on `Thinking` + caret for ~20 s and then the whole answer appeared in a
+  single 400 ms screenshot frame: the reasoning model buffers, so
+  `TokenReceived` delivers one large chunk rather than a dribble. The
+  frame-by-frame guarantee is therefore covered by the unit test
+  (`*` → `**` → `**L` → … → `**Languages:**`, no frame may contain a literal
+  `*`), not by a screenshot. Streaming itself is unchanged — the caret, the
+  placeholder and the `Done` handover all behaved.
+- Tooling note: **`uiautomator dump` fails with "could not get idle state"
+  while the caret blinks**, so a streaming screen has to be captured with
+  screenshots; dumps only work once generation stops.
+- One later ask returned "The AI service is busy — please retry." — the known
+  transient NVIDIA limit after several live calls in a row.
+- Left behind: four test chats in the account ("what are his skills", "what
+  projects has he worked on" ×2, "describe every project skill and job entry
+  in full detail"). Not deleted — deleting is the user's call, and the drawer
+  per-chat delete is the way to do it.
+
+### 28.7 Still open
+- Markdown inside *search results* and the viewer still comes from raw chunk
+  text and is painted literally; only the chat answer was made markdown-aware.
+- Links (`[text](url)`) and tables are still literal by design (§28.3).
+
+## 29. Phase K — de-duplicated top bar, paged drawer, guided new-chat canvas
+
+### 29.1 The ask
+Three screenshots-driven requests, one round:
+1. "lets remove the top navbar search pen icon, its already in drawer right" —
+   the chat top bar repeated Search and New chat, which the drawer already
+   offers.
+2. "in drawer, lets show 5 chats and see more … next 5 … similar logics apply
+   to document also" — the drawer listed every conversation and every document
+   in one unbounded column.
+3. "when user selects new chat … user should shown with pin icon, on top of it
+   … 2 option upload new file, check existing file … (add upload animation) …
+   if existing file is chosen, the chat related that specific document should
+   be shown" — the blank canvas gave a new user no way in.
+
+### 29.2 Top bar (`feature/shell/AppShell.kt:309`)
+`ShellTopBar` now takes only `onMenu`. The Search and New chat `IconButton`s
+and their parameters are deleted, not hidden — the drawer is the single home
+for both, per the standing "fewer controls" preference. The bar is hamburger +
+"Thagaval" and nothing else.
+
+### 29.3 Drawer pagination (`AppShell.kt:366-367, 390, 434-436, 480, 515-517`)
+Two independent counters, `chatsShown` and `documentsShown`, both start at
+`DrawerPageSize = 5` (`AppShell.kt:602`) and live in `remember`, so they reset
+when the drawer leaves composition but survive scrolling inside it.
+`items(state.conversations.take(chatsShown))` and
+`items(state.documents.take(documentsShown))`; after each list, only when
+`size > shown`, a `SeeMoreRow` (`AppShell.kt:593`) — a full-width `TextButton`
+in `AppColors.Accent` — adds another 5. No server change: the shell already
+holds the full lists, this is a window over them. The row disappears once
+everything is shown, so the last page ends clean.
+
+### 29.4 New-chat empty canvas (`feature/chat/ChatScreen.kt:158-230`)
+`EmptyCanvas` keeps its scoped branch (names the file, §25) and redesigns the
+unscoped one: a 40 dp attach glyph, then two `OutlinedButton`s —
+**Upload new file** and **Check existing file**.
+- *Upload new file* calls `onUploadDocument`, which the shell wires to the
+  existing SAF picker (`pickDocuments()`), so staging, WorkManager and the
+  notification path are reused unchanged.
+- *Check existing file* toggles a local `showDocuments` flag and lists every
+  library document as a `DocumentPickRow` (`ChatScreen.kt:232`); tapping one
+  calls `onOpenDocumentChat(document.id)`, which the shell routes through
+  `Routes.chatForDocument(id)` — the document's **resumed** thread, not a fresh
+  one (§24/§33 behaviour). Empty library shows "Nothing uploaded yet."
+- `ChatScreen`/`ChatContent` signatures gained the two callbacks
+  (`ChatScreen.kt:63-64, 83-84`); both previews pass no-ops.
+
+### 29.5 Upload animation (`AppShell.kt:657`)
+The Scaffold content is now a `Column`: an `UploadStrip` for
+`state.uploads.firstOrNull()` above a `Box(weight = 1f)` holding the NavHost
+and the banner, so a running upload never covers the prompt bar.
+`UploadStrip` pulses its upload glyph with `rememberInfiniteTransition` +
+`animateFloat(0.35f → 1f, tween(700, LinearEasing), RepeatMode.Reverse)` on the
+tint alpha, shows the file name, a `LinearProgressIndicator` driven by
+`job.percent` while running (indeterminate when queued), a `NN%` / "Queued"
+label and a cancel `IconButton` wired to `ShellIntent.CancelUpload`. The strip
+is transient: it vanishes when the job leaves `state.uploads`, which for a
+small file is under a second.
+
+### 29.6 The "pin" icon — Feather has no pushpin
+The request said "pin icon". The Feather pack (§27) contains no pushpin/thumbtack
+glyph; the closest "attach a file" meaning is `Paperclip`, exposed as
+`AppIcons.Attach` (`core/designsystem/AppIcons.kt:40`) so the facade stays the
+only place an icon pack is named. Swapping to a real pushpin later means
+adding one glyph to `AppIcons`, nothing else. **Flagged to the user.**
+
+### 29.7 Build and tests
+`./gradlew assembleDevDebug testDevDebugUnitTest` → exit 0, `BUILD SUCCESSFUL`,
+59 unit tests green (no new tests: this round is layout/navigation only, and
+the reducers it touches were already covered). `installDevDebug` → exit 0,
+installed on `RZCXB0FWFNW`.
+
+### 29.8 Device verification (2026-11-07, LAN URL, no tunnel)
+- **Top bar:** dump shows exactly one actionable node, `Open menu`, plus the
+  "Thagaval" title. Search/pen gone.
+- **Drawer chats:** 5 rows + `See more`; tap → 10 rows + `See more` (account
+  holds >10 threads). Screenshot confirms the emerald "See more" row.
+- **Drawer documents:** with only 3 docs no row appeared (correct: `size >
+  shown` is false). After the test upload brought the library to 8, the section
+  showed 5 + `See more`; tap → all 8 rows, documents `See more` gone while the
+  chats one remains. Both branches of the pagination exercised.
+- **New chat canvas:** paperclip + the two outlined buttons, nothing else.
+  *Check existing file* expanded all 7 library documents; tapping
+  `resume_srivastava_rahul.pdf` opened the scoped chat with the
+  "Asking resume_srivastava_rahul.pdf" chip **and the prior thread resumed**
+  ("what are his skills" + its answer), proving `chatForDocument` reuse.
+- **Upload:** *Upload new file* opened the system picker; chose
+  `Download/sample5.pdf` (5.8 kB). Frame 1 after selection shows the strip —
+  pale-emerald pulsing glyph (mid-alpha, visibly lighter than the full-accent
+  progress bar in the same frame), name, 100% bar, cancel X — plus the
+  "Added to the upload queue" banner. A frame ~1 s later shows the strip gone
+  and the canvas shifted up: completion removes the job, as designed.
+  Drawer then lists `sample5.pdf` as **Ready**, i.e. ingestion completed.
+- Tooling: the picker sorts by date descending with folders first, so a file
+  touched today sits at the top; two blind swipes overshot it and had to be
+  reversed. `screencap` immediately after the picker tap still catches the
+  picker itself — the return transition takes one frame.
+
+### 29.9 Left behind / still open
+- `sample5.pdf` is now a real document in the test account (the upload proof).
+  Delete it from the drawer overflow if unwanted; same for the four §28 test
+  chats.
+- The empty-canvas document list is intentionally unpaginated — it is a
+  picker, not a browsing surface; the drawer is where pagination lives.
+- Pushpin swap remains a one-line `AppIcons` change if the paperclip is not
+  the intended glyph (§29.6).
+
+## 30. Phase L — full-screen Chats and Documents managers (CRUD)
+
+### 30.1 The ask
+Two screenshots: the Profile page (Documents 7 / Chats 14 / Backend / Sign out)
+and a Google-Photos-style card grid. "when user clicks on chats, he should be
+redirected to full screen, where he should be able to list of chats he made
+and also crud operation should be doable … similarly … documents … list of
+files with preview with ui something similar to 2nd image … crud operations
+here". The drawer stays the five-row shortcut (§29); these are the managers.
+
+### 30.2 Entry points and a navigation bug found on device
+`Routes.CHATS` / `Routes.DOCUMENTS`; the Profile `StatLine`s for Documents and
+Chats are now clickable rows with a Feather chevron (`AppIcons.Forward`),
+Backend stays plain text. Both managers take the shell's `ShellViewModel`
+directly, like Profile, so lists, banners and intents stay single-source.
+**Bug:** the first build wired the managers' chat opens through `openChat`,
+whose `popUpTo(startDestination, inclusive = true)` empties the back stack —
+on device, BACK from the opened thread landed on the launcher. Managers now
+*push* (`navController.navigate`) so BACK returns to the list; the drawer
+keeps the root-replacing behaviour (`AppShell.kt`, CHATS/DOCUMENTS
+composables).
+
+### 30.3 Chats manager (`feature/chats/ChatsScreen.kt`)
+Header: Back, "Chats", New chat action (create). One card per thread: title,
+then `scopedName · relativeTime` (new `internal fun relativeTime`, unit-tested:
+just now / m / h / d / `d MMM yyyy` beyond a week, future clamped). Row tap
+opens the thread (read). Overflow: **Rename** (AlertDialog + OutlinedTextField,
+confirm disabled while blank) and **Delete** (shared confirm dialog).
+Rename is `ShellIntent.RenameConversation` → `ConversationRepository.rename`,
+which trims to `MAX_TITLE`, ignores blank, and deliberately does **not** touch
+`updatedAt` — renaming must not reorder recency. `ConfirmAction`/`ConfirmDialog`
+moved out of `AppShell` into `core/designsystem/ConfirmDialog.kt` so all three
+surfaces (drawer, chats, documents) ask before destroying.
+
+### 30.4 Documents manager (`feature/documents/DocumentsScreen.kt`)
+Card per file, in the reference image's order: header (FileText glyph, name,
+overflow), a 200 dp **first-page preview**, footer (status dot + label +
+chat count, then size + added date). Preview = `PdfRepository.thumbnail`,
+which reuses the viewer's `cacheDir/pdf-<id>.pdf` when present (a card opened
+once costs no network), renders page 0 at 720 px and caches the bitmap in an
+8 MB `LruCache` keyed by id; failure leaves the muted FileText placeholder.
+Crop is `ContentScale.Crop` with `Alignment.TopCenter` — the first build
+centered the crop and showed mid-body lorem ipsum instead of the title.
+Overflow: Open, Ask this document, Start a new chat in this document,
+Reprocess (FAILED only, §30.5), Delete N chats (only when N > 0), Delete
+document — the destructive pair behind the shared confirm dialog. Header
+upload icon and an empty-state "Upload new file" button reuse `pickDocuments`.
+`DocumentStatus.color()/label()` moved from AppShell privates to
+`core/designsystem/StatusStyle.kt`; `AppIcons.File` = Feather FileText.
+
+### 30.5 What CRUD means against this server
+- Chats: create (header), read (list/open), update (rename, local Room title),
+  delete (confirm; messages cleared with the thread).
+- Documents: create (upload), read (preview + viewer), update (**reprocess**),
+  delete (confirm; cascades to scoped chats, §26).
+- **Reprocess is a retry, not a refresh.** Tapping it on a READY file on device
+  produced the banner "Document is already processed": `DocumentService`
+  throws `ConflictException` for READY (and guards PROCESSING). The menu item
+  is therefore shown only for FAILED, exactly like the drawer's Retry icon —
+  a control that always 409s is a dead control. The 409 round-trip is itself
+  the proof the intent → API → error-mapper → banner path works.
+- **File rename is deliberately absent**: the backend has no rename endpoint,
+  and adding one would need a restart of the backend the user runs from
+  IntelliJ (pid 9740), which this session must not touch. Offered as a
+  follow-up instead of shipping half-dead UI.
+
+### 30.6 Build and tests
+`assembleDevDebug testDevDebugUnitTest installDevDebug` → exit 0,
+`BUILD SUCCESSFUL`, **63** unit tests (59 + 4 `RelativeTimeTest`), installed on
+`RZCXB0FWFNW`. Three install cycles: initial, back-stack fix, crop/gating fix.
+
+### 30.7 Device verification (2026-11-07, LAN URL)
+- Profile rows show counts and chevrons; Chats row → manager with all 16
+  threads, relative times and scoped file names.
+- **Chat CRUD cycle on a thread of my own:** header New chat created it
+  (`CHAT_NEW` creates on open), BACK returned to the manager (post-fix),
+  overflow → Rename → typed "rename probe" → row retitled; overflow → Delete →
+  confirm → row gone + "Chat deleted." banner. No user thread was touched.
+- **Tooling:** the Samsung Keyboard "predicted text" promo (Not now /
+  Download) pops on first text entry and ate the confirm tap; dismiss with
+  "Not now", then BACK to hide the IME, then re-dump — dialog buttons move
+  when the IME closes.
+- Documents row → card grid; previews rendered for every file (certificate
+  header, resume, lorem page). Card tap → viewer ("5 pages" for sample5).
+- Reprocess on READY sample5 → 409 banner (then gated out of the menu).
+- Delete document → confirm naming the file and the cascade → row gone +
+  "Document deleted." banner. This also cleaned up the Phase K `sample5.pdf`
+  test artifact.
+- Header upload icon → system `PickActivity` focused; BACK returns to the grid.
+- Final screenshot confirms top-anchored previews and the footer
+  `Ready · 1 chat` / `561 kB · 7 Nov` shape.
+
+### 30.8 Still open / notes
+- The shell banner overlays the manager's header title for its lifetime
+  (pre-existing overlay placement from §29); it is tap-to-dismiss and
+  transient. Moving it below the header is a one-line Scaffold change if it
+  bothers anyone.
+- File rename awaits a backend endpoint + a user-owned restart (§30.5).
+- The empty-canvas document picker (§29) and the drawer remain unpaginated /
+  five-row respectively by design; the managers are the full lists.
+
+## 31. Phase M — Profile "Backend" row is staging-only
+
+### 31.1 The ask
+> "similarly in profile , show the backend url only for staging environment ,
+> dont show that row for production app"
+
+The LAN address (`http://192.168.1.5:8080/`) is a debugging aid for the dev
+build; a shipped production app should not advertise which host it talks to.
+
+### 31.2 The gate
+Reuses the flavor field that already exists in `app/build.gradle.kts`
+(`dev` → `IS_DEV_BUILD=true`, `prod` → `false`) rather than adding a new
+flavor-name comparison:
+
+```kotlin
+// ProfileScreen.kt:55
+backendUrl = BuildConfig.API_BASE_URL.takeIf { BuildConfig.IS_DEV_BUILD }
+```
+
+`ProfileContent` takes `backendUrl: String? = null` and renders the row
+conditionally, so the production build has no row at all — not a hidden or
+greyed-out control (the "fewer controls, no dead UI" rule):
+
+```kotlin
+// ProfileScreen.kt:109
+backendUrl?.let { StatLine(label = "Backend", value = it) }
+```
+
+The `@Preview` passes a sample URL so the dev layout stays visible in Android
+Studio. `StatLine` keeps its optional `onClick` + chevron for the Documents and
+Chats rows; Backend has neither because it is read-only information.
+
+### 31.3 Build and tests
+`assembleDevDebug assembleProdDebug testDevDebugUnitTest installDevDebug` →
+exit 0, `BUILD SUCCESSFUL`, **63** tests, 0 failures, installed on
+`RZCXB0FWFNW`. Both flavors compile, which is the check that matters here.
+
+### 31.4 Verification, and its honest limit
+- **dev (staging):** re-launched, drawer → Profile, `uiautomator dump` still
+  shows `Documents / Chats / Backend / http://192.168.1.5:8080/ / Sign out`.
+- **prod:** hiding is guaranteed at compile time (`IS_DEV_BUILD=false` ⇒
+  `backendUrl == null` ⇒ the `let` block never runs), but it was **not**
+  observed on the device: the prod flavor points at the placeholder
+  `https://api.example.invalid/` (RFC-2606, never resolves) and cleartext HTTP
+  is only permitted in `src/dev`, so a prod build cannot sign in and therefore
+  cannot reach Profile. Verifying it on-device needs a real prod HTTPS
+  endpoint, which is out of scope for this session.

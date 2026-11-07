@@ -3,10 +3,13 @@ package com.ragclient.android.core.designsystem
 import androidx.compose.ui.graphics.vector.ImageVector
 import compose.icons.FeatherIcons
 import compose.icons.feathericons.ArrowLeft
+import compose.icons.feathericons.ChevronRight
 import compose.icons.feathericons.Edit2
+import compose.icons.feathericons.FileText
 import compose.icons.feathericons.Menu
 import compose.icons.feathericons.MessageCircle
 import compose.icons.feathericons.MoreVertical
+import compose.icons.feathericons.Paperclip
 import compose.icons.feathericons.RotateCw
 import compose.icons.feathericons.Search
 import compose.icons.feathericons.Send
@@ -35,7 +38,11 @@ object AppIcons {
     val Delete: ImageVector = FeatherIcons.Trash2
     val More: ImageVector = FeatherIcons.MoreVertical
     val Upload: ImageVector = FeatherIcons.Upload
+    // Feather has no pushpin; the paperclip is its "attach a file" glyph.
+    val Attach: ImageVector = FeatherIcons.Paperclip
     val Retry: ImageVector = FeatherIcons.RotateCw
     val Settings: ImageVector = FeatherIcons.Settings
     val Back: ImageVector = FeatherIcons.ArrowLeft
+    val File: ImageVector = FeatherIcons.FileText
+    val Forward: ImageVector = FeatherIcons.ChevronRight
 }

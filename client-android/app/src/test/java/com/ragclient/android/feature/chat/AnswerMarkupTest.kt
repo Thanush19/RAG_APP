@@ -94,6 +94,15 @@ class AnswerMarkupTest {
     }
 
     @Test
+    fun `adjacent bold runs inside parentheses keep every word`() {
+        // The shape the model really writes: **Portal** (**Spring Boot, Angular**):
+        // Only the markers may disappear, never the words between them.
+        val markup = answerMarkup("- **Portal** (**Spring Boot, Angular**): built fast")
+        assertEquals("• Portal (Spring Boot, Angular): built fast", markup.text)
+        assertEquals(listOf("Portal", "Spring Boot, Angular"), markup.boldRuns)
+    }
+
+    @Test
     fun `a marker split across tokens never shows one star`() {
         // One answer arriving one SSE token at a time: no frame may show a
         // literal `*`, because the next frame supplies the other half.

@@ -83,6 +83,14 @@ class ConversationRepository @Inject constructor(
         )
     }
 
+    /** Manual rename from the chat manager; recency is left alone. */
+    suspend fun rename(conversationId: String, title: String) {
+        val clean = title.trim().take(MAX_TITLE)
+        if (clean.isEmpty()) return
+        val current = conversationDao.observeById(conversationId).first() ?: return
+        conversationDao.upsert(current.copy(title = clean))
+    }
+
     suspend fun appendUserMessage(conversationId: String, text: String) {
         messageDao.insert(
             MessageEntity(

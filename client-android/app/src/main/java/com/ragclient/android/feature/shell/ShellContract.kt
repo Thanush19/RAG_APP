@@ -18,6 +18,7 @@ sealed interface ShellIntent {
     data class Upload(val uri: android.net.Uri) : ShellIntent
     data class CancelUpload(val job: UploadJob) : ShellIntent
     data class DeleteConversation(val conversationId: String) : ShellIntent
+    data class RenameConversation(val conversationId: String, val title: String) : ShellIntent
     data class DeleteChatsForDocument(val documentId: String) : ShellIntent
     data class DeleteDocument(val documentId: String) : ShellIntent
     data class RetryDocument(val documentId: String) : ShellIntent

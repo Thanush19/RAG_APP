@@ -1,8 +1,10 @@
 package com.ragclient.android.feature.shell
 
 import androidx.lifecycle.viewModelScope
+import androidx.compose.ui.graphics.ImageBitmap
 import com.ragclient.android.core.mvi.BaseViewModel
 import com.ragclient.android.data.auth.AuthRepository
+import com.ragclient.android.data.pdf.PdfRepository
 import com.ragclient.android.data.repository.ConversationRepository
 import com.ragclient.android.data.repository.DocumentRepository
 import com.ragclient.android.data.repository.LibraryOutcome
@@ -22,7 +24,8 @@ class ShellViewModel @Inject constructor(
     private val conversations: ConversationRepository,
     private val documents: DocumentRepository,
     private val uploadStager: UploadStager,
-    private val uploadQueue: UploadQueue
+    private val uploadQueue: UploadQueue,
+    private val pdfRepository: PdfRepository
 ) : BaseViewModel<ShellState, ShellIntent, ShellResult>(ShellState()) {
 
     init {
@@ -82,6 +85,10 @@ class ShellViewModel @Inject constructor(
                 reduceResult(ShellResult.Banner("Chat deleted."))
             }
 
+            is ShellIntent.RenameConversation -> viewModelScope.launch {
+                conversations.rename(intent.conversationId, intent.title)
+            }
+
             is ShellIntent.DeleteChatsForDocument -> viewModelScope.launch {
                 val removed = conversations.deleteAllForDocument(intent.documentId)
                 reduceResult(
@@ -107,6 +114,10 @@ class ShellViewModel @Inject constructor(
             ShellIntent.BannerShown -> reduceResult(ShellResult.BannerCleared)
         }
     }
+
+    /** Card preview for the documents manager; null means "show the placeholder". */
+    suspend fun thumbnail(documentId: String, widthPx: Int): ImageBitmap? =
+        pdfRepository.thumbnail(documentId, widthPx).getOrNull()
 
     private fun apply(
         outcome: LibraryOutcome,
