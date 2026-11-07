@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import com.ragclient.android.core.mvi.BaseViewModel
 import com.ragclient.android.data.network.RagStreamClient
+import com.ragclient.android.data.network.unreachableMessage
 import com.ragclient.android.data.repository.ConversationRepository
 import com.ragclient.android.domain.model.RagSourceModel
 import com.ragclient.android.domain.model.StreamEvent
@@ -168,8 +169,7 @@ class ChatViewModel @Inject constructor(
     private fun copyFor(code: String, serverMessage: String): String = when (code) {
         "UPSTREAM_UNAVAILABLE" ->
             "The AI service is busy — please retry."
-        "CONNECTION_FAILED" ->
-            "Can't reach the server. Check that the backend is running."
+        "CONNECTION_FAILED" -> unreachableMessage()
         else -> serverMessage.ifBlank { "The assistant failed mid-answer." }
     }
 

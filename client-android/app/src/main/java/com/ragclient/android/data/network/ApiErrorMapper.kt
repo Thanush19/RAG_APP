@@ -1,5 +1,6 @@
 package com.ragclient.android.data.network
 
+import com.ragclient.android.BuildConfig
 import com.ragclient.android.data.api.dto.ApiErrorDto
 import java.io.IOException
 import kotlinx.serialization.json.Json
@@ -11,6 +12,15 @@ data class ApiFailure(
     val message: String,
     val code: String?
 )
+
+/**
+ * The one message that has to name the origin: a transport failure means the
+ * address itself was wrong or unreachable, and without printing it there is
+ * nothing to compare against `ipconfig` or the phone's Wi-Fi.
+ */
+fun unreachableMessage(): String =
+    "Can't reach ${BuildConfig.API_BASE_URL}. Is this device on the same network " +
+        "as that address, and is the backend running?"
 
 /**
  * Turns backend error envelopes (and transport failures) into UI copy.
@@ -29,7 +39,7 @@ class ApiErrorMapper @Inject constructor(private val json: Json) {
             )
         }
         is IOException -> ApiFailure(
-            message = "Can't reach the server. Check that the backend is running.",
+            message = unreachableMessage(),
             code = CONNECTION_FAILED
         )
         else -> ApiFailure(message = fallback, code = null)
