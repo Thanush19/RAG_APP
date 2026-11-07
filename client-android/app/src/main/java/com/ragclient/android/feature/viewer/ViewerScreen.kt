@@ -14,8 +14,6 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -35,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ragclient.android.core.designsystem.AppColors
+import com.ragclient.android.core.designsystem.AppIcons
 import com.ragclient.android.core.designsystem.AppType
 
 @Composable
@@ -57,9 +56,9 @@ fun ViewerScreen(
         ) {
             IconButton(onClick = onBack) {
                 Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    imageVector = AppIcons.Back,
                     contentDescription = "Back",
-                    tint = MaterialTheme.colorScheme.onBackground
+                    tint = AppColors.Icon
                 )
             }
             Text(

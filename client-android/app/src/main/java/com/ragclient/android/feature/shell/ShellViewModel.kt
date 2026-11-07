@@ -75,14 +75,26 @@ class ShellViewModel @Inject constructor(
                 }
             }
 
-            is ShellIntent.CancelUpload -> uploadQueue.cancel(intent.workId)
+            is ShellIntent.CancelUpload -> uploadQueue.cancel(intent.job)
 
             is ShellIntent.DeleteConversation -> viewModelScope.launch {
                 conversations.deleteConversation(intent.conversationId)
                 reduceResult(ShellResult.Banner("Chat deleted."))
             }
 
+            is ShellIntent.DeleteChatsForDocument -> viewModelScope.launch {
+                val removed = conversations.deleteAllForDocument(intent.documentId)
+                reduceResult(
+                    ShellResult.Banner(
+                        if (removed == 0) "No chats in that document." else "Chats deleted."
+                    )
+                )
+            }
+
             is ShellIntent.DeleteDocument -> viewModelScope.launch {
+                // A thread scoped to a gone document can never retrieve
+                // again, so the file and its chats leave together.
+                conversations.deleteAllForDocument(intent.documentId)
                 apply(documents.remove(intent.documentId), successBanner = "Document deleted.")
             }
 

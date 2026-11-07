@@ -15,6 +15,14 @@ object AppColors {
     val Accent = Color(0xFF16A37A)       // single accent: emerald
     val AccentDark = Color(0xFF0E7A5B)
     val OnAccent = Color(0xFF052017)
+
+    /**
+     * Every glyph in the app is emerald. Two places keep a different tint
+     * because they sit *on* an emerald fill (the send disc and the drawer's
+     * New chat button use `onPrimary`), and the error banner keeps
+     * `onErrorContainer` so the cross does not read as a success colour.
+     */
+    val Icon = Accent
     val Muted = Color(0xFF6E756F)
     val Error = Color(0xFFB3261E)
 

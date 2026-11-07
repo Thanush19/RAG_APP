@@ -45,17 +45,20 @@ class ConversationRepository @Inject constructor(
             rows.map { it.toChatMessage() }
         }
 
-    /** Resumes the newest thread, or starts one when scoped to a document. */
-    suspend fun openOrCreate(scopedDocumentId: String? = null): String {
-        if (scopedDocumentId != null) {
-            conversationDao.latest()?.let { latest ->
-                if (latest.scopedDocumentId == scopedDocumentId) return latest.id
-            }
-            return newConversation(scopedDocumentId)
-        }
-        conversationDao.latest()?.let { return it.id }
-        return newConversation(null)
-    }
+    /** Resumes the newest thread, or starts one when none exists yet. */
+    suspend fun openOrCreate(): String =
+        conversationDao.latest()?.id ?: newConversation(null)
+
+    /**
+     * One thread per document, so asking the same PDF twice returns to the
+     * conversation you were already having with it.
+     */
+    suspend fun openForDocument(documentId: String): String =
+        conversationDao.latestScopedTo(documentId)?.id ?: newConversation(documentId)
+
+    /** A tapped drawer row opens exactly that thread; a stale id starts fresh. */
+    suspend fun openExisting(conversationId: String): String =
+        if (conversationDao.exists(conversationId)) conversationId else newConversation(null)
 
     suspend fun newConversation(scopedDocumentId: String? = null): String {
         val id = java.util.UUID.randomUUID().toString()
@@ -126,6 +129,16 @@ class ConversationRepository @Inject constructor(
     suspend fun deleteConversation(conversationId: String) {
         messageDao.clearForConversation(conversationId)
         conversationDao.deleteById(conversationId)
+    }
+
+    /** @return how many threads were removed, for the confirmation banner. */
+    suspend fun deleteAllForDocument(documentId: String): Int {
+        val ids = conversationDao.idsScopedTo(documentId)
+        if (ids.isEmpty()) return 0
+        // Room binds an `IN` list literally, so the empty case is handled above.
+        messageDao.clearForConversations(ids)
+        conversationDao.deleteByIds(ids)
+        return ids.size
     }
 
     private fun MessageEntity.toChatMessage(): ChatMessage = ChatMessage(

@@ -97,13 +97,19 @@ class UploadQueue @Inject constructor(
             .forEach { staged -> staged.parentFile?.deleteRecursively() }
     }
 
-    fun cancel(workId: String) {
-        val id = runCatching { UUID.fromString(workId) }.getOrNull() ?: return
+    fun cancel(job: UploadJob) {
+        val id = runCatching { UUID.fromString(job.workId) }.getOrNull() ?: return
         // A job parked in retry backoff has no live worker left to clear its
         // own ongoing row, so the queue dismisses it here. The row is keyed on
         // the work id, which is the one handle the UI always has.
-        notifier.dismiss(workId)
+        notifier.dismiss(job.workId)
         workManager.cancelWorkById(id)
+        // A job that never started has no doWork() to run the discard, so its
+        // staged copy would sit in files/uploads forever. A running one is
+        // left alone: the worker is mid-read and cleans up as it unwinds.
+        if (!job.running) {
+            job.stagedPath?.let { File(it).parentFile?.deleteRecursively() }
+        }
     }
 
     fun observe(): Flow<List<UploadJob>> =

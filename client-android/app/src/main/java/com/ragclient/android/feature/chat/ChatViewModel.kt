@@ -6,6 +6,7 @@ import com.ragclient.android.core.mvi.BaseViewModel
 import com.ragclient.android.data.network.RagStreamClient
 import com.ragclient.android.data.network.unreachableMessage
 import com.ragclient.android.data.repository.ConversationRepository
+import com.ragclient.android.data.repository.DocumentRepository
 import com.ragclient.android.domain.model.RagSourceModel
 import com.ragclient.android.domain.model.StreamEvent
 import com.ragclient.android.navigation.Routes
@@ -20,6 +21,7 @@ import kotlinx.coroutines.launch
 class ChatViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val conversations: ConversationRepository,
+    private val documents: DocumentRepository,
     private val ragStreamClient: RagStreamClient
 ) : BaseViewModel<ChatState, ChatIntent, ChatResult>(ChatState()) {
 
@@ -27,11 +29,19 @@ class ChatViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
+            documents.observeLibrary()
+                .collect { reduceResult(ChatResult.LibraryChanged(it)) }
+        }
+        viewModelScope.launch {
             val requested = savedStateHandle.get<String>(ARG_CONVERSATION)
             val scope = Routes.scopeOf(savedStateHandle.get<String>(ARG_SCOPE))
             val conversationId = when {
-                requested == NEW_CONVERSATION -> conversations.newConversation(scope)
-                else -> conversations.openOrCreate(scope)
+                requested == Routes.CHAT_NEW -> conversations.newConversation(scope)
+                requested == Routes.CHAT_FOR_DOCUMENT && scope != null ->
+                    conversations.openForDocument(scope)
+                requested == Routes.CHAT_LATEST_ID || requested.isNullOrBlank() ->
+                    conversations.openOrCreate()
+                else -> conversations.openExisting(requested)
             }
 
             reduceResult(
@@ -179,7 +189,5 @@ class ChatViewModel @Inject constructor(
     companion object {
         const val ARG_CONVERSATION = "conversationId"
         const val ARG_SCOPE = "scope"
-        const val NEW_CONVERSATION = "new"
-        const val LATEST_CONVERSATION = "latest"
     }
 }

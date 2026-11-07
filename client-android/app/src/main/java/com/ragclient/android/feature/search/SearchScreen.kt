@@ -11,9 +11,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Create
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -29,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ragclient.android.core.designsystem.AppColors
+import com.ragclient.android.core.designsystem.AppIcons
 import com.ragclient.android.core.designsystem.AppShapes
 import com.ragclient.android.core.designsystem.AppType
 import com.ragclient.android.core.designsystem.RagClientTheme
@@ -71,9 +69,9 @@ private fun SearchContent(
             trailingIcon = {
                 IconButton(onClick = { onIntent(SearchIntent.Run) }, enabled = state.canSearch) {
                     Icon(
-                        imageVector = Icons.Filled.Search,
+                        imageVector = AppIcons.Search,
                         contentDescription = "Search",
-                        tint = MaterialTheme.colorScheme.primary
+                        tint = AppColors.Icon
                     )
                 }
             },
@@ -162,9 +160,9 @@ private fun ResultCard(
 
             IconButton(onClick = onAsk) {
                 Icon(
-                    imageVector = Icons.Filled.Create,
+                    imageVector = AppIcons.Ask,
                     contentDescription = "Ask this document",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = AppColors.Icon,
                     modifier = Modifier.size(18.dp)
                 )
             }

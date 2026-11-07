@@ -24,9 +24,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.ElevatedSuggestionChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -40,11 +37,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ragclient.android.core.designsystem.AppColors
+import com.ragclient.android.core.designsystem.AppIcons
 import com.ragclient.android.core.designsystem.AppShapes
 import com.ragclient.android.core.designsystem.AppType
 import com.ragclient.android.core.designsystem.RagClientTheme
@@ -93,7 +93,7 @@ private fun ChatContent(
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
             if (state.messages.isEmpty() && !state.isGenerating) {
-                item { EmptyCanvas() }
+                item { EmptyCanvas(scopedDocumentName = state.scopedDocumentName) }
             }
 
             items(state.messages, key = { it.id }) { message ->
@@ -122,7 +122,7 @@ private fun ChatContent(
             value = state.prompt,
             canSend = state.canSend,
             isGenerating = state.isGenerating,
-            scopedDocumentId = state.scopedDocumentId,
+            scopedDocumentName = state.scopedDocumentName,
             onValueChange = { onIntent(ChatIntent.ChangePrompt(it)) },
             onSend = { onIntent(ChatIntent.Send) },
             onStop = { onIntent(ChatIntent.Stop) },
@@ -131,8 +131,12 @@ private fun ChatContent(
     }
 }
 
+/**
+ * The blank-thread screen. Naming the document here is what tells the user
+ * they are inside that file's thread rather than asking the whole library.
+ */
 @Composable
-private fun EmptyCanvas() {
+private fun EmptyCanvas(scopedDocumentName: String?) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -140,13 +144,33 @@ private fun EmptyCanvas() {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        if (scopedDocumentName == null) {
+            Text(
+                text = "Ask your documents.",
+                style = AppType.Display,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+        } else {
+            Text(
+                text = "Ask questions from",
+                style = AppType.Body,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = scopedDocumentName,
+                style = AppType.Display,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+        }
         Text(
-            text = "Ask your documents.",
-            style = AppType.Display,
-            color = MaterialTheme.colorScheme.onBackground
-        )
-        Text(
-            text = "Answers cite the exact page they came from.",
+            text = if (scopedDocumentName == null) {
+                "Answers cite the exact page they came from."
+            } else {
+                "Only this document is searched, and this thread stays with it."
+            },
             style = AppType.Body,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -182,11 +206,13 @@ private fun MessageRow(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Text(
-                text = message.text,
+                text = displayAnswer(message.text),
                 style = AppType.AnswerBody,
                 color = MaterialTheme.colorScheme.onBackground
             )
-            SourceRow(sources = message.sources, onOpenSource = onOpenSource)
+            if (ShowCitations) {
+                SourceRow(sources = message.sources, onOpenSource = onOpenSource)
+            }
         }
     }
 }
@@ -203,15 +229,33 @@ private fun StreamingRow(
     ) {
         Row(verticalAlignment = Alignment.Bottom) {
             Text(
-                text = text.ifBlank { "Thinking" },
+                text = displayAnswer(text.ifBlank { "Thinking" }),
                 style = AppType.AnswerBody,
                 color = MaterialTheme.colorScheme.onBackground
             )
             BlinkingCaret()
         }
-        SourceRow(sources = sources, onOpenSource = onOpenSource)
+        if (ShowCitations) {
+            SourceRow(sources = sources, onOpenSource = onOpenSource)
+        }
     }
 }
+
+/**
+ * Citation UI is switched off for now: the sources still arrive over SSE,
+ * stay in `ChatMessage.sources` and in Room, and the deep-link handler is
+ * still wired — only the chips and the inline `[S1]` markers are hidden.
+ */
+private const val ShowCitations = false
+
+/** Removes the `[S1]`-style markers the model drops into the answer text. */
+internal fun displayAnswer(text: String): String = text
+    .replace(InlineCitationMarker, "")
+    .replace(TrailingSpaceBeforePunctuation, "")
+    .trim()
+
+private val InlineCitationMarker = Regex(""" ?\[[Ss]\d+(?: *, *[Ss]\d+)*\]""")
+private val TrailingSpaceBeforePunctuation = Regex(" +(?=[.,;:!?)])")
 
 /**
  * The answer's trailing block, on/off like a real text caret. Kept in its own
@@ -286,7 +330,7 @@ private fun ErrorBanner(problem: String, onDismiss: () -> Unit) {
             )
             IconButton(onClick = onDismiss) {
                 Icon(
-                    imageVector = Icons.Filled.Close,
+                    imageVector = AppIcons.Close,
                     contentDescription = "Dismiss",
                     tint = MaterialTheme.colorScheme.onErrorContainer
                 )
@@ -300,7 +344,7 @@ private fun PromptBar(
     value: String,
     canSend: Boolean,
     isGenerating: Boolean,
-    scopedDocumentId: String?,
+    scopedDocumentName: String?,
     onValueChange: (String) -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
@@ -321,21 +365,26 @@ private fun PromptBar(
             .padding(horizontal = 14.dp, vertical = 10.dp)
     ) {
         Column {
-            if (scopedDocumentId != null) {
+            if (scopedDocumentName != null) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(start = 18.dp, top = 10.dp)
                 ) {
                     Text(
-                        text = "Asking one document only",
+                        text = "Asking $scopedDocumentName",
                         style = AppType.Label,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        // A resume can be long; without a weight it would push
+                        // the "ask all documents" button off the drawer-wide row.
+                        modifier = Modifier.weight(1f, fill = false)
                     )
                     IconButton(onClick = onClearScope, modifier = Modifier.size(32.dp)) {
                         Icon(
-                            imageVector = Icons.Filled.Close,
+                            imageVector = AppIcons.Close,
                             contentDescription = "Ask all documents",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = AppColors.Icon,
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -372,9 +421,9 @@ private fun PromptBar(
                     ) {
                         Icon(
                             imageVector = if (isGenerating) {
-                                Icons.Filled.Close
+                                AppIcons.Close
                             } else {
-                                Icons.AutoMirrored.Filled.Send
+                                AppIcons.Send
                             },
                             contentDescription = if (isGenerating) "Stop" else "Send",
                             tint = if (actionEnabled) {

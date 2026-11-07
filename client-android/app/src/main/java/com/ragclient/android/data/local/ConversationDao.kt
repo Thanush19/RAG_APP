@@ -49,6 +49,18 @@ interface ConversationDao {
     @Query("SELECT * FROM conversations ORDER BY updatedAt DESC LIMIT 1")
     suspend fun latest(): ConversationEntity?
 
+    @Query(
+        "SELECT * FROM conversations WHERE scopedDocumentId = :documentId " +
+            "ORDER BY updatedAt DESC LIMIT 1"
+    )
+    suspend fun latestScopedTo(documentId: String): ConversationEntity?
+
+    @Query("SELECT id FROM conversations WHERE scopedDocumentId = :documentId")
+    suspend fun idsScopedTo(documentId: String): List<String>
+
+    @Query("SELECT EXISTS(SELECT 1 FROM conversations WHERE id = :id)")
+    suspend fun exists(id: String): Boolean
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(conversation: ConversationEntity)
 
@@ -57,6 +69,9 @@ interface ConversationDao {
 
     @Query("DELETE FROM conversations WHERE id = :id")
     suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM conversations WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<String>)
 
     @Transaction
     suspend fun create(
@@ -92,6 +107,9 @@ interface MessageDao {
 
     @Query("DELETE FROM messages WHERE conversationId = :conversationId")
     suspend fun clearForConversation(conversationId: String)
+
+    @Query("DELETE FROM messages WHERE conversationId IN (:conversationIds)")
+    suspend fun clearForConversations(conversationIds: List<String>)
 
     @Query("UPDATE messages SET text = :text, sourcesJson = :sourcesJson WHERE id = :id")
     suspend fun replaceContent(id: Long, text: String, sourcesJson: String?)

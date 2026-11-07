@@ -283,11 +283,11 @@ Location: `C:\Users\Thanush\projects\TODO\client-android`
   synthesized facade (`javap -v -p` shows `k=2`). Correct usage:
   `import retrofit2.converter.kotlinx.serialization.asConverterFactory`
   then `.addConverterFactory(json.asConverterFactory("application/json".toMediaType()))`.
-- **Icons:** only the core icon set is on the classpath —
-  `Icons.Filled.Stop` and `Icons.AutoMirrored.Filled.Chat` do NOT
-  resolve. Use `Icons.Filled.Close` / `Icons.Filled.Info` / Home /
-  Search, or add `androidx.compose.material:material-icons-extended`
-  deliberately (APK size).
+- **Icons:** the glyph set is `br.com.devsrsouza.compose.icons:feather`
+  behind `core/designsystem/AppIcons`, tinted `AppColors.Icon` (§27).
+  Before §27 this line read "only the 63-icon `material-icons-core` set is on
+  the classpath — `Icons.Filled.Stop` / `...Chat` do not resolve"; no `Icons.*`
+  reference remains in `app/src/main`.
 
 ## 10.2 Environment constraints
 
@@ -1363,9 +1363,478 @@ was the in-progress upload row (library documents already open the viewer).
 - `RoutesTest` pins the path→route split and the blank-name case.
 
 ### 21.3 Verification status
-`assembleDevDebug testDevDebugUnitTest` → `CLIENT_EXIT=0`, `RoutesTest` green.
-**On-device check is outstanding**: the phone dropped off adb (`No connected
-devices!`) before `installDevDebug`, so the preview tap, the viewer page render
-and the "file vanished mid-preview" case have not been exercised yet. Reconnect
-the device, then `./gradlew installDevDebug`, pick a large PDF, and tap the
-upload row while it is still transferring.
+~~On-device check outstanding~~ — **superseded by §24**: the tap was exercised
+on the SM-S711B, which is how the broken containment check in `openStaged()`
+was found. That section also covers the render proof and the cancel cleanup.
+
+## 22. "Can't reach the server" — removed the adb tunnel dependency (2026-11-01)
+
+### 22.1 Why it kept happening
+The dev build pointed at `http://127.0.0.1:8080/`, which on a USB phone only
+works while `adb reverse tcp:8080 tcp:8080` exists. That tunnel is wiped by
+every replug, every adb-server restart and every `adb kill-server`, and nothing
+re-creates it — so a healthy backend looked like a dead one. The screenshot the
+user sent was exactly this: `adb reverse --list` returned nothing.
+
+### 22.2 The fix
+`gradle.properties` now carries an active `rag.devBaseUrl=http://192.168.1.5:8080/`,
+so the dev build talks to the PC over Wi-Fi and needs no host-side tunnel at
+all. Nothing else had to change: Tomcat already binds `0.0.0.0:8080`, the dev
+flavor already sets `usesCleartextTraffic="true"` for any host, and the Windows
+firewall already lets inbound 8080 through.
+
+The earlier note in this plan and in memory said a LAN URL could not work
+because the PC was on `192.168.1.5/24` and the phone on `192.168.0.104/24`.
+That was true on 2026-10-31 and is **not** true now — the phone is
+`192.168.1.12/24`, the same subnet. Networks here move, so re-check both
+addresses (`ipconfig`, `adb shell ip -4 addr show wlan0`) before concluding.
+Note that `adb shell ping <pc-ip>` fails even when HTTP works, because Windows
+drops inbound ICMP; test L4 instead:
+
+```
+adb shell "printf 'GET /api/v1/documents HTTP/1.1\r\nHost: 192.168.1.5\r\nConnection: close\r\n\r\n' | nc 192.168.1.5 8080 | head -1"
+```
+
+### 22.3 Better copy for the next occurrence
+`ApiErrorMapper` gained a top-level `unreachableMessage()` and the `IOException`
+branch now prints the origin it tried — "Can't reach http://…:8080/. Is this
+device on the same network as that address, and is the backend running?" —
+instead of "Check that the backend is running.", which was misleading whenever
+the backend was in fact up. `ChatViewModel.copyFor()` had a duplicate of the old
+sentence and now calls the same function.
+
+### 22.4 Verification
+- `assembleDevDebug testDevDebugUnitTest installDevDebug` → `CLIENT_EXIT=0`.
+- `adb reverse --list` **empty** before and after the test.
+- Raw HTTP from the phone to `192.168.1.5:8080` → `HTTP/1.1 403` (Tomcat
+  answered; 403 is the expected unauthenticated response).
+- The login screen footer reads `http://192.168.1.5:8080/  •  dev`, and signing
+  in as `test4@gmail.com` succeeded and loaded the document list over Wi-Fi.
+
+### 22.5 What is still not permanent
+The PC's address is DHCP-assigned. If the router hands out something else, the
+baked URL breaks in the same way — the fix is a **DHCP reservation for
+`192.168.1.5` in the router** (one-time, user action, outside this repo). Until
+that is done, the recovery is: read `ipconfig`, edit the single
+`rag.devBaseUrl` line, rebuild. The USB tunnel remains available as a fallback
+via `-Prag.devBaseUrl=http://127.0.0.1:8080/` plus `adb reverse`, but that
+reintroduces the manual step.
+
+---
+
+## 23. "Ask this document" icon: pen → speech bubble (2026-11-07)
+
+> **Superseded the same day by §27.** `ic_chat.xml` and every `Icons.Filled.*`
+> reference are gone; the speech bubble is now `AppIcons.Ask`
+> (`FeatherIcons.MessageCircle`). The reasoning below is kept because it
+> records why the icon changed shape, not where it came from.
+
+User request: the per-PDF ask affordance used a pen, which reads as "edit"; it
+must read as "ask about this document".
+
+### 23.1 Why a hand-drawn vector instead of a library icon
+`gradle/libs.versions.toml` pulls **`material-icons-core` only**. Its whole set
+is 63 icons (`Icons.Filled.{Add, ArrowBack, ArrowDropDown, Check, Close, Create,
+Delete, Done, Email, Menu, Search, Settings, …}`) — verified by extracting
+`material-icons-core-android-1.7.8-sources.jar` and listing
+`commonMain/.../icons/filled/`. There is **no chat / comment / bubble glyph**
+(`Chat`, `ModeComment`, `Message`, `Forum` are all absent; the nearest are
+`Email`, `MailOutline`, `Send`). `Icons.AutoMirrored.Filled.Chat` therefore does
+not compile, and `material-icons-extended` is not an option: release keeps
+`isMinifyEnabled = false`, so it would ship ~1 MB of unused vectors.
+
+So: `app/src/main/res/drawable/ic_chat.xml` (24dp viewport, black fill,
+`fillType="evenOdd"` so the three text bars knock out of the bubble) rendered
+with `Icon(painter = painterResource(R.drawable.ic_chat), tint = …)`. `Icon`'s
+Painter overload calls `applyTint`, so the drawable stays colour-agnostic and
+still picks up `onSurfaceVariant`. This matches the existing precedent of
+hand-rolled art (`ic_app_icon.xml`, `thagaval_logo` via `painterResource`).
+
+### 23.2 Call sites changed (2 of the 4 `Icons.Filled.Create` uses)
+- `feature/shell/AppShell.kt` — drawer document row, `contentDescription = "Ask this document"`.
+- `feature/search/SearchScreen.kt` — search-result row, same description; its
+  now-unused `Icons.Filled.Create` import was removed.
+- **Left alone:** the two "New chat" pens (`AppShell.kt` top bar + drawer
+  button), which are a compose/edit action and correctly use the pen.
+
+### 23.3 Verification (physical SM-S711B)
+- `assembleDevDebug testDevDebugUnitTest installDevDebug` → `CLIENT_EXIT=0`,
+  `BUILD SUCCESSFUL in 23s`, installed on `SM-S711B - 16`.
+- Drawer open → `uiautomator dump` lists six `content-desc="Ask this document"`
+  nodes; screencrop of the first one shows the bubble with tail + three bars.
+- Search for `resume` → two result rows each carry the same bubble node;
+  cropped screenshot confirms it renders identically at 18dp.
+- Tapping a drawer bubble closed the drawer and landed on a new chat screen
+  (`Routes.chat("new", documentId)`), so the navigation is unchanged.
+- Tooling note: no ImageMagick/Python on this machine, so screenshots were
+  cropped/upscaled with a single-file JDK program (`Crop.java`, `java Crop.java
+  in.png out.png x y w h scale`). Git Bash `/tmp` paths are invisible to the
+  JDK — pass `cygpath -w` paths.
+
+---
+
+## 24. Staged preview proven on device — and the bug it found (2026-11-07)
+
+### 24.1 How the window was made deterministic
+Previewing a staged upload only makes sense while the bytes are still moving,
+and a 0.5 MB file over the LAN finishes in well under a second, so the row was
+gone before it could be tapped. The reliable way to hold a job in a live state:
+`adb shell svc wifi disable`, pick the file, and the worker fails its first
+attempt and parks in 30 s retry backoff (`ENQUEUED` is a live state, the staged
+copy stays). The row then reads "Preparing upload / Queued" indefinitely.
+
+### 24.2 The bug: the containment check rejected every valid path
+The first attempt opened the viewer but showed *"This PDF could not be opened."*
+even though `files/uploads/1794062150979/sample5.pdf` existed with a valid
+`%PDF-1.4` header and `%%EOF` trailer.
+
+`PdfRepository.openStaged()` built `File(root, "<directory>/<name>")` and then
+required `file.parentFile == root` — but the staged layout is
+`uploads/<batch>/<file>`, so `file.parentFile` is `uploads/<batch>`, never
+`uploads`. The guard failed for **every** legitimate path; the preview had never
+worked, on any build.
+
+Fix: the containment rule is now a canonical path prefix test in a pure,
+testable helper `stagedFile(root, directory, name)` (`PdfRepository.kt`), which
+also refuses `..` escapes. Covered by `app/src/test/.../data/pdf/StagedFileTest.kt`
+(happy path, traversal, missing file).
+
+### 24.3 Second gap found: cancel left the staged copy behind
+`UploadWorker` deletes the staged copy when it unwinds, but a job cancelled
+**before it ever ran** has no `doWork()` to clean up, so `files/uploads/<batch>/`
+survived — a silent storage leak against the 50 MB per-user quota. `UploadQueue.cancel()`
+now takes the whole `UploadJob` (`ShellIntent.CancelUpload(job)`) and deletes the
+staged batch itself when `job.running == false`. A running job is deliberately
+left to the worker, because deleting the file out from under an in-flight
+`FileProgressRequestBody` would turn a clean cancel into a `MISSING_FILE` failure.
+
+### 24.4 Verification (physical SM-S711B)
+- `assembleDevDebug testDevDebugUnitTest installDevDebug` → `CLIENT_EXIT=0`,
+  `BUILD SUCCESSFUL`, twice (fix 24.2, then fix 24.3).
+- With Wi-Fi off: pick `sample5.pdf` → row "Preparing upload / Queued" → tap it →
+  viewer renders **"5 pages"** and page 1 of the Lorem-ipsum document
+  (`content-desc="Document page"`, screenshot verified).
+- Reinstall does not lose the job: WorkManager restored it and the row was still
+  previewable afterwards.
+- Cancel of the live row: `run-as … ls -R files/uploads` → **empty**, no
+  `Cancel upload` node left in the drawer, and no
+  `FOREGROUND_SERVICE|ONGOING` notification for the package.
+- The parked job also proved the retry path end-to-end in reverse: after the
+  cancel, nothing re-appeared.
+
+### 24.5 Environment side effect the user must undo
+To create the offline window, Wi-Fi was toggled with `svc wifi disable/enable`.
+The phone re-joined **SSID `Rkarthik` (192.168.0.104)** instead of
+**`Airtel_thanush`**, and `192.168.0.0/24 → 192.168.1.5:8080` does not route
+(`nc` from the phone times out), so the app now shows the new
+"Can't reach http://192.168.1.5:8080/…" banner. **Action: reconnect the phone to
+`Airtel_thanush`.** `cmd wifi connect-network`/`enable-network` cannot be driven
+from adb (shell uid gets a SecurityException, and the saved network needs its
+password), so this is a user-side step.
+
+### 24.6 Still open
+- Duplicate document on retry (no idempotency key) — unchanged from §20.5.
+- Session drop after a backend restart — unchanged from §20.5.
+- Empty batch directories are only pruned at the next `enqueue()`; harmless, but
+  a cold-start prune would be tidier.
+
+## 25. Citation UI hidden, logic untouched (2026-11-07)
+
+### 25.1 The ask
+"i dont want to those [s1] and some bublles withs s1 p1 and more yo user, just
+hide the ui as of now, dont remove that logic" — the answer text ended with a
+literal `[S1]` and a row of `S1 · p1` / `S2 · p1` / `S3 · p1` chips sat under it.
+
+### 25.2 What changed (presentation only, one file)
+`feature/chat/ChatScreen.kt`:
+- New `private const val ShowCitations = false`. Both `SourceRow(...)` call
+  sites (finished message and streaming row) are wrapped in `if (ShowCitations)`.
+  `SourceRow`, `RagSourceModel`, `ChatMessage.sources`, the SSE `sources` event,
+  `ChatReducer` and the `onOpenSource` deep-link into the viewer are all still
+  there — flip the constant back to `true` and the chips return with working
+  taps. Nothing was deleted, and the sources are still persisted in Room.
+- New `internal fun displayAnswer(text: String)`, applied to both the stored
+  answer and the streaming buffer. It strips `[S1]`, `[S1, S3]` and
+  `[S1][S2]`-style markers and any space left in front of the punctuation that
+  followed them, then trims. The marker comes from the model's own answer text
+  (the backend prompt asks for it), so it is removed at render time only — the
+  raw text in the database is unchanged.
+
+### 25.3 Tests
+`app/src/test/java/com/ragclient/android/feature/chat/DisplayAnswerTest.kt`,
+4 cases: marker before punctuation, mid-sentence + multi-index brackets, plain
+text with a line break and a non-citation `[ b ]` left byte-for-byte intact, and
+a half-arrived `[S` during streaming (still shown that one frame — accepted, it
+completes on the next chunk).
+
+### 25.4 Verification (physical SM-S711B)
+`assembleDevDebug testDevDebugUnitTest` → `CLIENT_EXIT=0`, `BUILD SUCCESSFUL`,
+`DisplayAnswerTest` executed. Then the live path:
+- The phone was still on `Rkarthik` (§24.5), so `192.168.1.5:8080` was
+  unreachable. Instead of waiting on the SSID fix, the build was installed with
+  `-Prag.devBaseUrl=http://127.0.0.1:8080/` plus `adb reverse tcp:8080 tcp:8080`
+  — the tunnel is fine for a verification run, it just cannot be the shipped
+  default (§22).
+- Asked "what is the email id of him". `uiautomator` dump of the answer node:
+  `text="The email ID is `writetorahul3125@gmail.com`."` — **no `[S1]`, and no
+  chip nodes anywhere in the tree**. Screenshot confirmed; reopening the app
+  after a cold start showed the same stored message rendered the same way,
+  which proves the strip works on Room-persisted text, not just live SSE.
+- Restored afterwards: plain `installDevDebug` (gradle.properties puts
+  `rag.devBaseUrl` back to `http://192.168.1.5:8080/`, verified in the generated
+  `BuildConfig.java`) and `adb reverse --remove-all`.
+
+### 25.5 Two things this exposed
+- **Markdown is shown literally.** The answer keeps its backticks, so the user
+  sees `` `writetorahul3125@gmail.com` ``. Out of scope for this change, but it
+  is the same class of problem as the `[S1]` marker: model output is being
+  painted straight into a `Text`. Either strip inline code/bold in
+  `displayAnswer` or add a real markdown renderer.
+- **Drawer chat rows do not open.** Tapping the "what is the email id of him"
+  row in the drawer closed the drawer and left the empty "Ask your documents."
+  state; `AppDrawer.onOpenChat` → `Routes.chat(id)` navigation is not landing.
+  Unreproducible since (the answer above was reached by asking again), so it is
+  a fresh suspect rather than a confirmed defect. Needs a look before the
+  conversation history is considered usable.
+  → Resolved the same day in §26.5.1: `launchSingleTop`, and it was never
+  unreproducible, just unnoticed. The markdown point above stays open (§26.8).
+
+## 26. Per-document chats: continuity, context, and three ways to delete (2026-11-07)
+
+### 26.1 The ask
+"when i tap on pre uploaded doc to message on it, its opening the screen i
+have uploaded in second image, to give user more context, can we have some
+ui improvement for this case, like please ask question from this story_aims
+file, something like, also preserve the chat we had with specific document,
+also give a option for user to delete the chat alone for the specific chat
+and all the chat with specific doc, and also the option to delete specific
+document"
+
+Four separate demands: (a) say plainly which file you are talking to,
+(b) one thread per document that survives leaving the app, (c) delete a
+single chat / every chat of one document, (d) delete the document.
+
+### 26.2 One thread per document
+`ConversationDao` gained `latestScopedTo(documentId)`, `idsScopedTo(documentId)`,
+`exists(id)` and `deleteByIds(ids)`; `MessageDao` gained
+`clearForConversations(conversationIds)`.
+
+`data/repository/ConversationRepository.kt`:
+- `openForDocument(id)` → the newest conversation whose `scopedDocumentId`
+  matches, or a new one. Tapping the same PDF twice returns to the
+  conversation you were already having with it.
+- `openExisting(id)` → that exact thread; a stale id (row deleted elsewhere)
+  starts fresh instead of opening a blank dead screen.
+- `deleteAllForDocument(id)` → messages then conversations, returns the
+  count for the banner. **Guards the empty list** because Room binds
+  `IN (:ids)` literally and `IN ()` is not valid SQL.
+
+`navigation/Routes.kt`: `chatForDocument(id)` = `chat/scoped?scope=<id>` and
+`newChatInDocument(id)` = `chat/new?scope=<id>`. `ChatViewModel` resolves the
+four route sentinels (`new`, `scoped`, `latest`, explicit id) against the
+repository.
+
+### 26.3 Saying which file you are in
+`ChatState` now carries `documents: List<LibraryDocument>` and
+`scopedDocumentName: String?`; `ChatResult.LibraryChanged` feeds the library
+flow into the chat reducer so the name resolves no matter whether the
+conversation or the library arrived first (`nameOf()` is re-run on both
+emissions).
+
+- Empty state, scoped: **"Ask questions from"** / the file name at
+  `AppType.Display` / "Only this document is searched, and this thread stays
+  with it." Unscoped keeps "Ask your documents."
+- Prompt bar chip: **"Asking <file>.pdf"**, plus the existing
+  "Ask all documents" button that drops the scope.
+- `ChatResult.LibraryChanged` also **widens a dead scope**: if the scoped
+  document left the library, `scopedDocumentId` becomes null so the thread
+  falls back to the whole library instead of asking a nonexistent id and
+  getting nothing back.
+
+### 26.4 Drawer controls
+`DocumentRow` shows `Ready · 2 chats` (`pluralize()` handles the 1 case) and a
+`MoreVert` menu — "Start a new chat in this document" / "Delete N chats" /
+"Delete document". The delete-chats entry is **not rendered at all when the
+count is zero**; a greyed-out "Delete 0 chats" is just noise. Both destructive
+entries route through a local `ConfirmAction(title, body, confirmLabel, run)`
++ `ConfirmDialog` before anything is touched.
+
+Chat rows print the scoped file name as a second line, so "New chat" in the
+history list says which document it belongs to.
+
+`ShellIntent.DeleteChatsForDocument` → banner "Chats deleted." /
+"No chats in that document.". `ShellIntent.DeleteDocument` now **cascades**:
+it calls `deleteAllForDocument` before `documents.remove(id)`, because a
+thread scoped to a gone document can never retrieve again. Confirmation copy
+changed from "Its chats stay until you delete them too." to
+"Chats about this file are deleted too." to match.
+
+### 26.5 Three shipped defects found on the way
+1. **Every chat switch was a silent no-op.** `navigate(...) {
+   launchSingleTop = true }` matches the *destination*, and all threads
+   share the `chat/{conversationId}` pattern, so tapping another chat or
+   another document kept whatever was already on screen. This is what
+   §25.5 recorded as "unreproducible" — it reproduced the moment a second
+   entry point was added. Replaced with one `openChat(route)` helper that
+   does `popUpTo(findStartDestination().id) { inclusive = true }`; all five
+   chat navigation sites go through it.
+2. **Document scoping never reached the request.** `CHAT_PATTERN` declared
+   its placeholder as `{documentId}` while `navArgument(ARG_SCOPE)` is named
+   `scope`, so the bundle key differed from the key the view model read and
+   `savedStateHandle` handed back the `"none"` default forever. Placeholder
+   renamed to `{scope}`; a route placeholder name and its `navArgument` name
+   must be identical.
+3. **The server ignored the scope even when the client sent it.** Fixing (2)
+   still produced an answer pulled from the *wrong* PDF. The client had been
+   posting `documentId` all along, but `AskRequest` had no such field, so
+   `RagService.ask`/`askStream` hard-coded `null` into the retrieval filter
+   that `POST /rag/search` already used. Backend work is recorded in the
+   project plan, section 25.
+
+### 26.6 Tests
+`testDevDebugUnitTest` → `CLIENT_EXIT=0`, `BUILD SUCCESSFUL`, **46** cases.
+New since §25:
+- `DocumentChatRoutesTest` (3): `chatForDocument("doc-1") ==
+  "chat/scoped?scope=doc-1"`, `newChatInDocument`, plain and id routes.
+- `ScopedDocumentNameTest` (3): name resolves in either emission order,
+  unscoped/deleted give null, and a departed document widens
+  `scopedDocumentId` back to null while a live one keeps it.
+- `DisplayAnswerTest` (4) from §25 still green.
+
+### 26.7 Verification (physical SM-S711B, tunnel build)
+Phone still on the unroutable `Rkarthik` SSID (§24.5), so the build was
+installed with `-Prag.devBaseUrl=http://127.0.0.1:8080/` + `adb reverse`,
+and a temporary backend with the §26.5.3 fix was run on **8081** so the
+user's IDE session on 8080 was never restarted.
+- Cold start resumed the latest thread; the scoped document row's Ask bubble
+  opened "Ask questions from / thagaval_death_test.pdf" with the
+  "Asking thagaval_death_test.pdf" chip.
+- Re-tapping the same document returned to the thread holding the previous
+  question and answer — continuity proven, not just asserted.
+- Tapping an older drawer chat row opened exactly that thread (the §25.5
+  bug, now fixed), showing the stored answer with its `[S1]` stripped.
+- Menu on a document with two threads: "Delete 2 chats" → confirm dialog →
+  both threads gone and the row reverts to plain `Ready`.
+- Menu on a document with zero threads: no delete-chats entry at all.
+- "Delete document" dialog shows the cascade copy; **Cancel pressed**, no
+  user data destroyed.
+- Scope proof, same question two ways —
+  scoped to `thagaval_death_test.pdf`: "The provided documents do not
+  contain an answer to this question."
+  unscoped, second later: "writetorahul3125@gmail.com".
+- Restored: plain `installDevDebug` (`gradle.properties` line 17 =
+  `http://192.168.1.5:8080/` again), `adb reverse --remove-all`, 8081
+  instance killed, device and working-directory scratch files deleted.
+
+### 26.8 Still open
+- §25.5's markdown point stands: the unscoped answer above arrived as bare
+  text this time but answers containing `` `code` `` or `**bold` ` still
+  render literally (task #34).
+- The cascade on document delete is proven only for its Room half
+  (`deleteAllForDocument` on device); the destructive document path itself
+  was exercised up to the confirmation dialog and cancelled.
+- Phone must rejoin SSID `Airtel_thanush` before `192.168.1.5:8080` is
+  reachable again from the shipped build.
+
+## 27. Icons: compose-icons Feather pack, emerald everywhere (2026-11-07)
+
+### 27.1 The ask
+"instead of creating basic icons and using android icons use the icons from
+this library https://github.com/DevSrSouza/compose-icons for our use case,
+use emerald colour for icons which is our theme" — i.e. stop hand-drawing
+vector drawables, stop using the 63-glyph Android core set, and make every
+glyph the theme's emerald.
+
+### 27.2 Pack choice
+`br.com.devsrsouza.compose.icons` publishes 10 packs at **1.1.1** on Maven
+Central (`css-gg, erikflowers-weather-icons, eva-icons, feather,
+font-awesome, line-awesome, linea, octicons, simple-icons, tabler-icons`).
+Two candidates were measured from Maven Central before choosing:
+
+| Pack | `-android` AAR | Coverage of our 12 glyphs |
+| --- | --- | --- |
+| **feather** | 0.83 MB | complete |
+| tabler-icons | 3.87 MB | complete |
+
+Feather won on size and because its 24dp/2px stroke matches the serif
+answer-first look. Note the library has **no Material Design Icons pack**
+any more, and `isMinifyEnabled = false` in release means an unused-heavy
+pack is pure APK weight — the same argument §23.1 used against
+`material-icons-extended`.
+
+### 27.3 Wiring
+- `gradle/libs.versions.toml`: new `composeIcons = "1.1.1"` and
+  `compose-icons-feather = { group = "br.com.devsrsouza.compose.icons", name =
+  "feather", version.ref = "composeIcons" }`. The
+  `androidx-compose-material-icons` (material-icons-core) entry was **deleted**.
+- `app/build.gradle.kts`: `implementation(libs.compose.icons.feather)`
+  replaces the material-icons line. `settings.gradle.kts` already had
+  `mavenCentral()`, so no repository change. Resolution confirmed with
+  `./gradlew :app:dependencies --configuration devDebugCompileClasspath` →
+  `feather:1.1.1` → `feather-android:1.1.1`.
+- material3 still drags `material-icons-core` in transitively; that is
+  harmless, and nothing in `app/src/main` references `Icons.*` any more
+  (`grep -rn "material.icons" app/src/main` → empty).
+- The generated API is an empty marker object plus extension properties, so
+  **each glyph needs two imports**: `compose.icons.FeatherIcons` *and*
+  `compose.icons.feathericons.<Name>`. Forgetting the second one gives
+  `Unresolved reference`.
+- Gotcha hit during this change: Feather names the cross **`X`**, not `Close`
+  (and `Edit2`/`Trash2`/`RotateCw`/`MoreVertical` are the suffixed variants).
+  `AppIcons.Close = FeatherIcons.X` keeps the call sites readable.
+
+### 27.4 `core/designsystem/AppIcons.kt` (new)
+Semantic names, not shape names, so a screen never imports an icon pack and
+the whole set can be re-skinned in one file:
+
+`Menu, Search, NewChat(Edit2), Ask(MessageCircle), Send, Close(X), Delete(Trash2),
+More(MoreVertical), Upload, Retry(RotateCw), Settings, Back(ArrowLeft)`
+
+### 27.5 Tint rule
+`AppColors.Icon = Accent` (`0xFF16A37A`) added to the token object with the
+exception list written next to it:
+
+- **Emerald** — top bar (menu, search, new chat), drawer chat-row delete,
+  drawer nav items (Add document → `Upload`, Search inside documents,
+  Profile → `Settings`), upload-row cancel, document row retry + ask +
+  overflow, scoped-chip "ask all documents" cross, search-field magnifier,
+  search-result ask bubble, viewer back arrow.
+- **`onPrimary`** (dark ink on an emerald fill) — the send disc and the
+  drawer's "New chat" button. Emerald on emerald would be invisible.
+- **`onErrorContainer`** — the error banner cross, so a failure control
+  does not read as the success colour.
+
+Destructive glyphs are emerald too (delete chat, cancel upload): the user
+asked for emerald icons, not for emerald-safe icons, and the confirm dialog
+still paints its action label `AppColors.Error`.
+
+### 27.6 Removed
+`app/src/main/res/drawable/ic_chat.xml` deleted (unreferenced after the
+swap). `ic_app_icon.xml` (notification small icon) and `thagaval_logo`
+(splash) stay — those are brand marks, not UI glyphs.
+
+### 27.7 Verification
+`assembleDevDebug testDevDebugUnitTest` → `BUILD SUCCESSFUL`,
+**46** unit tests still green (icon work is presentation-only, nothing to
+assert). Then the tunnel build (`-Prag.devBaseUrl=http://127.0.0.1:8080/` +
+`adb reverse`) on the SM-S711B, screenshotted region by region:
+- Chat screen: emerald hamburger / magnifier / pencil in the top bar;
+  Feather plane in the send disc (grey while the field is empty = disabled
+  state, unchanged).
+- Drawer: pencil on the emerald "New chat" fill, `Trash2` on all seven chat
+  rows, `Upload` on Add document, `MessageCircle` + `DotsVertical` on every
+  document row.
+- Drawer footer: `Search` and `Settings` emerald.
+- Scoped chat: "Asking preview_test_cert.pdf" chip with the emerald `X`.
+- Viewer: emerald `ArrowLeft` beside "1 page".
+- Search results: emerald `MessageCircle` on a hit row (query "What is this
+  document about" → `thagaval_death_test.pdf · p1 · match 0.12`).
+- Restored: plain `installDevDebug` (LAN URL back on gradle.properties
+  line 17), `adb reverse --remove-all`, device dumps and local screenshots
+  deleted.
+
+### 27.8 Incidental observation, not touched
+Several library rows render **Queued** forever (`apa-research-paper-template.pdf`,
+two `Aayush Atul Chandak Resume.pdf` copies) — the stale `UPLOADED` status
+already recorded in the project plan §24.2.1. A `POST /documents/{id}/reprocess`
+or a delete clears them; left alone because it is the user's data.

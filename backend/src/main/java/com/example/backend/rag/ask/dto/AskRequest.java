@@ -10,6 +10,8 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.util.UUID;
+
 @Getter
 @NoArgsConstructor
 @AllArgsConstructor
@@ -26,4 +28,11 @@ public class AskRequest {
     @DecimalMin(value = "-1.0", message = "minScore must be at least -1.0")
     @DecimalMax(value = "1.0", message = "minScore must not exceed 1.0")
     private Float minScore;
+
+    /**
+     * Restricts retrieval to one document. Ownership is still enforced by
+     * the `userId` condition and the chunk lookup, so a foreign id simply
+     * matches nothing.
+     */
+    private UUID documentId;
 }

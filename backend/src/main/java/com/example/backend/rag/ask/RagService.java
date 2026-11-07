@@ -44,21 +44,22 @@ public class RagService {
             String question,
             int topK
     ) {
-        return ask(userId, question, topK, null);
+        return ask(userId, question, topK, null, null);
     }
 
     public RagAnswer ask(
             UUID userId,
             String question,
             int topK,
-            Float minScore
+            Float minScore,
+            UUID documentId
     ) {
         List<RetrievedChunk> chunks =
                 retrievalService.retrieve(
                         userId,
                         question,
                         topK,
-                        null,
+                        documentId,
                         minScore
                 );
 
@@ -102,13 +103,24 @@ public class RagService {
             Float minScore,
             RagStreamListener listener
     ) {
+        askStream(userId, question, topK, minScore, null, listener);
+    }
+
+    public void askStream(
+            UUID userId,
+            String question,
+            int topK,
+            Float minScore,
+            UUID documentId,
+            RagStreamListener listener
+    ) {
         try {
             List<RetrievedChunk> chunks =
                     retrievalService.retrieve(
                             userId,
                             question,
                             topK,
-                            null,
+                            documentId,
                             minScore
                     );
 

@@ -52,7 +52,8 @@ public class RagController {
                 userId,
                 request.getQuestion(),
                 topK,
-                request.getMinScore()
+                request.getMinScore(),
+                request.getDocumentId()
         );
 
         return ResponseEntity.ok(
@@ -87,6 +88,7 @@ public class RagController {
                         request.getQuestion(),
                         topK,
                         request.getMinScore(),
+                        request.getDocumentId(),
                         new RagService.RagStreamListener() {
 
                             @Override

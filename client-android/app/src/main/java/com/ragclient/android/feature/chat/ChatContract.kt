@@ -1,5 +1,6 @@
 package com.ragclient.android.feature.chat
 
+import com.ragclient.android.data.repository.LibraryDocument
 import com.ragclient.android.domain.model.ChatMessage
 import com.ragclient.android.domain.model.RagSourceModel
 
@@ -12,6 +13,9 @@ data class ChatState(
     val streamingText: String = "",
     val streamingSources: List<RagSourceModel> = emptyList(),
     val scopedDocumentId: String? = null,
+    val documents: List<LibraryDocument> = emptyList(),
+    /** Only for the "ask this document" copy; null when the file is gone. */
+    val scopedDocumentName: String? = null,
     val error: String? = null
 ) {
     val canSend: Boolean get() = !isGenerating && prompt.isNotBlank()
@@ -46,6 +50,7 @@ sealed interface ChatResult {
     ) : ChatResult
 
     data class ScopeChanged(val documentId: String?) : ChatResult
+    data class LibraryChanged(val documents: List<LibraryDocument>) : ChatResult
     data object ErrorDismissed : ChatResult
 }
 
@@ -56,6 +61,7 @@ object ChatReducer {
         is ChatResult.ConversationLoaded -> state.copy(
             conversationId = result.conversationId,
             scopedDocumentId = result.scopedDocumentId,
+            scopedDocumentName = nameOf(state.documents, result.scopedDocumentId),
             isLoading = false
         )
 
@@ -97,10 +103,24 @@ object ChatReducer {
 
         is ChatResult.ScopeChanged -> state.copy(
             scopedDocumentId = result.documentId,
+            scopedDocumentName = nameOf(state.documents, result.documentId),
             streamingText = "",
             streamingSources = emptyList(),
             isGenerating = false
         )
+
+        is ChatResult.LibraryChanged -> {
+            // A thread can outlive its document. Asking a deleted id
+            // retrieves nothing at all, so the scope widens back to the
+            // whole library instead of going dead.
+            val scope = state.scopedDocumentId
+                ?.takeIf { id -> result.documents.any { it.id == id } }
+            state.copy(
+                documents = result.documents,
+                scopedDocumentId = scope,
+                scopedDocumentName = nameOf(result.documents, scope)
+            )
+        }
 
         ChatResult.ErrorDismissed -> state.copy(
             error = null,
@@ -108,4 +128,7 @@ object ChatReducer {
             streamingSources = emptyList()
         )
     }
+
+    private fun nameOf(documents: List<LibraryDocument>, documentId: String?): String? =
+        documents.firstOrNull { it.id == documentId }?.fileName
 }

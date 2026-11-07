@@ -1518,5 +1518,51 @@ not touched here because it is the user's data.
 
 See the Android plan, section 14, for the upload-queue work this surfaced.
 
+## 25. Ask-time document filter (2026-11-07)
+
+The Android client has had a per-document "Ask this document" mode for
+weeks, and `RagStreamClient` has been sending `documentId` in the ask body
+the whole time. It was **silently discarded**: `AskRequest` had no such
+field, so `RagController` could not read it and `RagService.ask`/`askStream`
+passed a hard-coded `null` into `RetrievalService.retrieve(userId, query,
+topK, documentId, minScore)` — the 4th argument that already existed and
+already worked for `POST /rag/search`. Filtering the answer to one document
+was therefore never active on `/ask` or `/ask/stream`.
+
+### 25.1 Change
+
+- `rag/ask/dto/AskRequest.java`: `private UUID documentId;` (Lombok
+  `@Getter`-only DTO, same shape as `SearchRequest.documentId`, so Jackson
+  binds it the same way `question` already does).
+- `rag/ask/RagController.java`: both endpoints forward
+  `request.getDocumentId()`.
+- `rag/ask/RagService.java`: `ask(userId, q, topK, minScore, documentId)` and
+  `askStream(userId, q, topK, minScore, documentId, listener)` feed the filter
+  into retrieval. The old 3-arg `ask` and the 5-arg `askStream` kept as
+  one-line delegations with `null` because `RagServiceTest` /
+  `RagStreamServiceTest` call them.
+
+No ownership check was added on purpose: the Qdrant `must match userId`
+condition and the Postgres chunk lookup already gate by user, so a forged
+`documentId` matches nothing instead of leaking another user's chunks. A
+foreign id degrades to the no-context answer, which is the same reply an
+empty document gives.
+
+### 25.2 Verification
+
+`./gradlew compileJava compileTestJava` → `BACKEND_EXIT=0`, `BUILD SUCCESSFUL`.
+
+The IDE-run instance on 8080 (pid 9740) was deliberately **not** restarted —
+it is the user's session. A temporary second instance was launched on 8081
+against the same Neon/Qdrant with
+`./gradlew bootRun --args='--server.port=8081'`, the phone was built against
+`http://127.0.0.1:8081/`, and both were shut down after the run. The only
+`ERROR` lines in its log are "Access Denied" from unauthenticated `curl /`
+probes. See Android plan §26.5 for the paired client-side proof: the same
+question returned the resume's email address unscoped and
+"The provided documents do not contain an answer to this question." when
+scoped to a different PDF.
+
+
 
 

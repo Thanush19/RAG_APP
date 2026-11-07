@@ -28,16 +28,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Create
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -49,21 +43,28 @@ import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -72,6 +73,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.ragclient.android.R
 import com.ragclient.android.core.designsystem.AppColors
+import com.ragclient.android.core.designsystem.AppIcons
 import com.ragclient.android.core.designsystem.AppShapes
 import com.ragclient.android.core.designsystem.AppType
 import com.ragclient.android.data.repository.LibraryDocument
@@ -123,6 +125,12 @@ fun AppShell(
 
     val closeDrawer: () -> Unit = { scope.launch { drawerState.close() } }
 
+    val openChat: (String) -> Unit = { route ->
+        navController.navigate(route) {
+            popUpTo(navController.graph.findStartDestination().id) { inclusive = true }
+        }
+    }
+
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
@@ -130,18 +138,18 @@ fun AppShell(
                 state = state,
                 onNewChat = {
                     closeDrawer()
-                    navController.navigate(Routes.chat("new")) { launchSingleTop = true }
+                    openChat(Routes.chat(Routes.CHAT_NEW))
                 },
                 onOpenChat = { id ->
                     closeDrawer()
-                    navController.navigate(Routes.chat(id)) { launchSingleTop = true }
+                    openChat(Routes.chat(id))
                 },
                 onDeleteChat = { viewModel.onIntent(ShellIntent.DeleteConversation(it)) },
                 onAddDocument = {
                     closeDrawer()
                     pickDocuments()
                 },
-                onCancelUpload = { viewModel.onIntent(ShellIntent.CancelUpload(it)) },
+                onCancelUpload = { job -> viewModel.onIntent(ShellIntent.CancelUpload(job)) },
                 onPreviewUpload = { path ->
                     closeDrawer()
                     Routes.stagedViewer(path)?.let { navController.navigate(it) }
@@ -152,9 +160,16 @@ fun AppShell(
                 },
                 onAskDocument = { id ->
                     closeDrawer()
-                    navController.navigate(Routes.chat("new", id)) { launchSingleTop = true }
+                    openChat(Routes.chatForDocument(id))
+                },
+                onNewChatInDocument = { id ->
+                    closeDrawer()
+                    openChat(Routes.newChatInDocument(id))
                 },
                 onDeleteDocument = { viewModel.onIntent(ShellIntent.DeleteDocument(it)) },
+                onDeleteChatsForDocument = {
+                    viewModel.onIntent(ShellIntent.DeleteChatsForDocument(it))
+                },
                 onRetryDocument = { viewModel.onIntent(ShellIntent.RetryDocument(it)) },
                 onSearch = {
                     closeDrawer()
@@ -173,7 +188,7 @@ fun AppShell(
             topBar = {
                 ShellTopBar(
                     onMenu = { scope.launch { drawerState.open() } },
-                    onNewChat = { navController.navigate(Routes.chat("new")) { launchSingleTop = true } },
+                    onNewChat = { openChat(Routes.chat(Routes.CHAT_NEW)) },
                     onSearch = { navController.navigate(Routes.SEARCH) }
                 )
             }
@@ -190,7 +205,7 @@ fun AppShell(
                     arguments = listOf(
                         navArgument(ChatViewModel.ARG_CONVERSATION) {
                             type = NavType.StringType
-                            defaultValue = ChatViewModel.LATEST_CONVERSATION
+                            defaultValue = Routes.CHAT_LATEST_ID
                         },
                         navArgument(ChatViewModel.ARG_SCOPE) {
                             type = NavType.StringType
@@ -212,7 +227,7 @@ fun AppShell(
                             navController.navigate(Routes.viewer(documentId, page))
                         },
                         onAskDocument = { documentId ->
-                            navController.navigate(Routes.chat("new", documentId))
+                            openChat(Routes.chatForDocument(documentId))
                         }
                     )
                 }
@@ -292,9 +307,9 @@ private fun ShellTopBar(
     ) {
         IconButton(onClick = onMenu) {
             Icon(
-                imageVector = Icons.Filled.Menu,
+                imageVector = AppIcons.Menu,
                 contentDescription = "Open menu",
-                tint = MaterialTheme.colorScheme.onBackground
+                tint = AppColors.Icon
             )
         }
         Text(
@@ -307,16 +322,16 @@ private fun ShellTopBar(
         )
         IconButton(onClick = onSearch) {
             Icon(
-                imageVector = Icons.Filled.Search,
+                imageVector = AppIcons.Search,
                 contentDescription = "Search documents",
-                tint = MaterialTheme.colorScheme.onBackground
+                tint = AppColors.Icon
             )
         }
         IconButton(onClick = onNewChat) {
             Icon(
-                imageVector = Icons.Filled.Create,
+                imageVector = AppIcons.NewChat,
                 contentDescription = "New chat",
-                tint = MaterialTheme.colorScheme.onBackground
+                tint = AppColors.Icon
             )
         }
     }
@@ -329,20 +344,28 @@ private fun AppDrawer(
     onOpenChat: (String) -> Unit,
     onDeleteChat: (String) -> Unit,
     onAddDocument: () -> Unit,
-    onCancelUpload: (String) -> Unit,
+    onCancelUpload: (UploadJob) -> Unit,
     onPreviewUpload: (String) -> Unit,
     onOpenDocument: (String) -> Unit,
     onAskDocument: (String) -> Unit,
+    onNewChatInDocument: (String) -> Unit,
     onDeleteDocument: (String) -> Unit,
+    onDeleteChatsForDocument: (String) -> Unit,
     onRetryDocument: (String) -> Unit,
     onSearch: () -> Unit,
     onProfile: () -> Unit,
     onSignOut: () -> Unit
 ) {
+    /** Destructive menu entries ask first; the drawer is a crowded place to undo. */
+    var pendingConfirm by remember { mutableStateOf<ConfirmAction?>(null) }
+    val askConfirm: (ConfirmAction) -> Unit = { pendingConfirm = it }
+
     ModalDrawerSheet(
         drawerContainerColor = MaterialTheme.colorScheme.surface,
         modifier = Modifier.width(330.dp)
     ) {
+        ConfirmDialog(pendingConfirm, onDismiss = { pendingConfirm = null })
+
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -359,6 +382,9 @@ private fun AppDrawer(
                 item { DrawerHint("No chats yet.") }
             } else {
                 items(state.conversations, key = { it.id }) { conversation ->
+                    val scopedName = state.documents
+                        .firstOrNull { it.id == conversation.scopedDocumentId }
+                        ?.fileName
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth()
@@ -367,20 +393,33 @@ private fun AppDrawer(
                             selected = false,
                             onClick = { onOpenChat(conversation.id) },
                             label = {
-                                Text(
-                                    text = conversation.title,
-                                    style = AppType.Body,
-                                    maxLines = 1,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
+                                Column {
+                                    Text(
+                                        text = conversation.title,
+                                        style = AppType.Body,
+                                        maxLines = 1,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    // Which file this thread belongs to, so a
+                                    // document chat is not another anonymous row.
+                                    if (scopedName != null) {
+                                        Text(
+                                            text = scopedName,
+                                            style = AppType.Label,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
                             },
                             modifier = Modifier.weight(1f)
                         )
                         IconButton(onClick = { onDeleteChat(conversation.id) }) {
                             Icon(
-                                imageVector = Icons.Filled.Delete,
+                                imageVector = AppIcons.Delete,
                                 contentDescription = "Delete chat",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                tint = AppColors.Icon,
                                 modifier = Modifier.size(18.dp)
                             )
                         }
@@ -393,7 +432,7 @@ private fun AppDrawer(
                 items(state.uploads, key = { it.workId }) { job ->
                     UploadRow(
                         job = job,
-                        onCancel = { onCancelUpload(job.workId) },
+                        onCancel = { onCancelUpload(job) },
                         onPreview = { job.stagedPath?.let(onPreviewUpload) }
                     )
                 }
@@ -405,7 +444,9 @@ private fun AppDrawer(
                 NavigationDrawerItem(
                     selected = false,
                     onClick = onAddDocument,
-                    icon = { Icon(Icons.Filled.Add, contentDescription = null) },
+                    icon = {
+                        Icon(AppIcons.Upload, contentDescription = null, tint = AppColors.Icon)
+                    },
                     label = {
                         Text(
                             text = if (state.uploads.isEmpty()) {
@@ -426,11 +467,37 @@ private fun AppDrawer(
                 item { DrawerHint("Nothing uploaded yet.") }
             } else {
                 items(state.documents, key = { it.id }) { document ->
+                    val chatCount = state.conversations.count {
+                        it.scopedDocumentId == document.id
+                    }
                     DocumentRow(
                         document = document,
+                        chatCount = chatCount,
                         onOpen = { onOpenDocument(document.id) },
                         onAsk = { onAskDocument(document.id) },
-                        onDelete = { onDeleteDocument(document.id) },
+                        onNewChat = { onNewChatInDocument(document.id) },
+                        onDeleteChats = {
+                            askConfirm(
+                                ConfirmAction(
+                                    title = "Delete chats",
+                                    body = "Delete ${pluralize(chatCount, "chat")} " +
+                                        "in ${document.fileName}? Answers already given are gone.",
+                                    confirmLabel = "Delete chats",
+                                    run = { onDeleteChatsForDocument(document.id) }
+                                )
+                            )
+                        },
+                        onDelete = {
+                            askConfirm(
+                                ConfirmAction(
+                                    title = "Delete document",
+                                    body = "Remove ${document.fileName} from your library? " +
+                                        "Chats about this file are deleted too.",
+                                    confirmLabel = "Delete document",
+                                    run = { onDeleteDocument(document.id) }
+                                )
+                            )
+                        },
                         onRetry = { onRetryDocument(document.id) }
                     )
                 }
@@ -442,7 +509,9 @@ private fun AppDrawer(
                 NavigationDrawerItem(
                     selected = false,
                     onClick = onSearch,
-                    icon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                    icon = {
+                        Icon(AppIcons.Search, contentDescription = null, tint = AppColors.Icon)
+                    },
                     label = { Text("Search inside documents", style = AppType.Body) }
                 )
             }
@@ -451,7 +520,9 @@ private fun AppDrawer(
                 NavigationDrawerItem(
                     selected = false,
                     onClick = onProfile,
-                    icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
+                    icon = {
+                        Icon(AppIcons.Settings, contentDescription = null, tint = AppColors.Icon)
+                    },
                     label = { Text("Profile", style = AppType.Body) }
                 )
             }
@@ -545,9 +616,9 @@ private fun UploadRow(
         }
         IconButton(onClick = onCancel) {
             Icon(
-                imageVector = Icons.Filled.Close,
+                imageVector = AppIcons.Close,
                 contentDescription = stringResource(R.string.upload_cancel),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = AppColors.Icon,
                 modifier = Modifier.size(18.dp)
             )
         }
@@ -614,7 +685,7 @@ private fun NewChatButton(onNewChat: () -> Unit) {
             modifier = Modifier.padding(horizontal = 18.dp, vertical = 13.dp)
         ) {
             Icon(
-                imageVector = Icons.Filled.Create,
+                imageVector = AppIcons.NewChat,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onPrimary
             )
@@ -641,11 +712,16 @@ private fun SectionLabel(text: String) {
 @Composable
 private fun DocumentRow(
     document: LibraryDocument,
+    chatCount: Int,
     onOpen: () -> Unit,
     onAsk: () -> Unit,
+    onNewChat: () -> Unit,
+    onDeleteChats: () -> Unit,
     onDelete: () -> Unit,
     onRetry: () -> Unit
 ) {
+    var menuOpen by remember { mutableStateOf(false) }
+
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth()
@@ -670,7 +746,11 @@ private fun DocumentRow(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = document.status.label(),
+                        text = if (chatCount > 0) {
+                            "${document.status.label()} · ${pluralize(chatCount, "chat")}"
+                        } else {
+                            document.status.label()
+                        },
                         style = AppType.Label,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -682,9 +762,9 @@ private fun DocumentRow(
         if (document.status == DocumentStatus.FAILED) {
             IconButton(onClick = onRetry) {
                 Icon(
-                    imageVector = Icons.Filled.Refresh,
+                    imageVector = AppIcons.Retry,
                     contentDescription = "Retry processing",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = AppColors.Icon,
                     modifier = Modifier.size(18.dp)
                 )
             }
@@ -692,23 +772,82 @@ private fun DocumentRow(
 
         IconButton(onClick = onAsk) {
             Icon(
-                imageVector = Icons.Filled.Create,
+                imageVector = AppIcons.Ask,
                 contentDescription = "Ask this document",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = AppColors.Icon,
                 modifier = Modifier.size(18.dp)
             )
         }
 
-        IconButton(onClick = onDelete) {
-            Icon(
-                imageVector = Icons.Filled.Delete,
-                contentDescription = "Delete document",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp)
-            )
+        // The two destructive actions live behind a menu, so the row keeps the
+        // two icons it had before and neither of them can wipe data by mistake.
+        Box {
+            IconButton(onClick = { menuOpen = true }) {
+                Icon(
+                    imageVector = AppIcons.More,
+                    contentDescription = "Options for ${document.fileName}",
+                    tint = AppColors.Icon,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenuItem(
+                    text = { Text("Start a new chat in this document") },
+                    onClick = {
+                        menuOpen = false
+                        onNewChat()
+                    }
+                )
+                // No dead "Delete 0 chats" row: the item only exists when
+                // there is something in this document to lose.
+                if (chatCount > 0) {
+                    DropdownMenuItem(
+                        text = { Text("Delete ${pluralize(chatCount, "chat")}") },
+                        onClick = {
+                            menuOpen = false
+                            onDeleteChats()
+                        }
+                    )
+                }
+                DropdownMenuItem(
+                    text = { Text("Delete document") },
+                    onClick = {
+                        menuOpen = false
+                        onDelete()
+                    }
+                )
+            }
         }
     }
 }
+
+private data class ConfirmAction(
+    val title: String,
+    val body: String,
+    val confirmLabel: String,
+    val run: () -> Unit
+)
+
+@Composable
+private fun ConfirmDialog(action: ConfirmAction?, onDismiss: () -> Unit) {
+    if (action == null) return
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(action.title) },
+        text = { Text(action.body) },
+        confirmButton = {
+            TextButton(onClick = { onDismiss(); action.run() }) {
+                Text(action.confirmLabel, color = AppColors.Error)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+private fun pluralize(count: Int, noun: String): String =
+    if (count == 1) "1 $noun" else "$count ${noun}s"
 
 private fun DocumentStatus.color(): Color = when (this) {
     DocumentStatus.READY -> AppColors.StatusReady

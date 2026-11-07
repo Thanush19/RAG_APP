@@ -1,7 +1,9 @@
 package com.ragclient.android.feature.chat
 
+import com.ragclient.android.data.repository.LibraryDocument
 import com.ragclient.android.domain.model.ChatMessage
 import com.ragclient.android.domain.model.ChatRole
+import com.ragclient.android.domain.model.DocumentStatus
 import com.ragclient.android.domain.model.RagSourceModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -96,5 +98,61 @@ class ChatReducerTest {
         assertFalse(ChatState(isGenerating = true, prompt = "hi").canSend)
         assertFalse(ChatState(isGenerating = false, prompt = "   ").canSend)
         assertTrue(ChatState(isGenerating = false, prompt = "hi").canSend)
+    }
+}
+
+class ScopedDocumentNameTest {
+
+    private val library = listOf(
+        LibraryDocument("d1", "resume_srivastava_rahul.pdf", "pdf", 128_000L, DocumentStatus.READY, null)
+    )
+
+    @Test
+    fun `either order resolves the name once both halves are known`() {
+        val libraryFirst = ChatReducer.reduce(
+            ChatState(),
+            ChatResult.LibraryChanged(library)
+        )
+        val scoped = ChatReducer.reduce(
+            libraryFirst,
+            ChatResult.ConversationLoaded("c1", "d1")
+        )
+        assertEquals("resume_srivastava_rahul.pdf", scoped.scopedDocumentName)
+
+        val loadedFirst = ChatReducer.reduce(ChatState(), ChatResult.ConversationLoaded("c1", "d1"))
+        assertNull(loadedFirst.scopedDocumentName)
+        assertEquals(
+            "resume_srivastava_rahul.pdf",
+            ChatReducer.reduce(loadedFirst, ChatResult.LibraryChanged(library)).scopedDocumentName
+        )
+    }
+
+    @Test
+    fun `an unscoped thread and a deleted document both have no name`() {
+        val scoped = ChatState(
+            scopedDocumentId = "d1",
+            documents = library,
+            scopedDocumentName = "resume_srivastava_rahul.pdf"
+        )
+
+        assertNull(ChatReducer.reduce(scoped, ChatResult.ScopeChanged(null)).scopedDocumentName)
+        assertNull(
+            ChatReducer.reduce(scoped, ChatResult.LibraryChanged(emptyList())).scopedDocumentName
+        )
+    }
+
+    @Test
+    fun `a deleted document widens its thread back to the whole library`() {
+        val scoped = ChatState(
+            scopedDocumentId = "d1",
+            documents = library,
+            scopedDocumentName = "resume_srivastava_rahul.pdf"
+        )
+
+        val widened = ChatReducer.reduce(scoped, ChatResult.LibraryChanged(emptyList()))
+        assertNull(widened.scopedDocumentId)
+
+        val stillScoped = ChatReducer.reduce(scoped, ChatResult.LibraryChanged(library))
+        assertEquals("d1", stillScoped.scopedDocumentId)
     }
 }

@@ -68,10 +68,8 @@ class PdfRepository @Inject constructor(
         withContext(Dispatchers.IO) {
             runCatching {
                 val root = File(context.filesDir, "uploads").canonicalFile
-                val file = File(root, "$directory${File.separator}$name").canonicalFile
-                require(file.parentFile == root && file.isFile) {
-                    "That preview is no longer available."
-                }
+                val file = stagedFile(root, directory, name)
+                    ?: error("That preview is no longer available.")
                 rendererFor(file)
             }
         }
@@ -79,5 +77,17 @@ class PdfRepository @Inject constructor(
     private fun rendererFor(file: File): OpenedPdf {
         val descriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
         return OpenedPdf(descriptor, PdfRenderer(descriptor))
+    }
+}
+
+/**
+ * Resolves a staged upload to a real file, refusing anything that escapes
+ * [root] once symlinks and `..` are collapsed. The staged layout is always
+ * `<uploads>/<batch>/<file>`, so both segments come from navigation arguments.
+ */
+internal fun stagedFile(root: File, directory: String, name: String): File? {
+    val candidate = File(root, "$directory${File.separator}$name").canonicalFile
+    return candidate.takeIf {
+        it.toPath().startsWith(root.canonicalFile.toPath()) && it.isFile
     }
 }
