@@ -2,19 +2,24 @@ spring:
   application:
     name: todo-backend
 
+  # PostgreSQL - Neon
   datasource:
-    url: jdbc:postgresql://ep-icy-fire-b3voipou-pooler.c-4.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
-    username: neondb_owner
-    password: npg_R1ZuQ7UiCXbs
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
     driver-class-name: org.postgresql.Driver
 
+  # Database migrations
   flyway:
     enabled: true
     locations: classpath:db/migration
 
 server:
-  port: ${SERVER_PORT:8080}
+  # Render provides PORT automatically.
+  # Locally, defaults to 8080.
+  port: ${PORT:${SERVER_PORT:8080}}
 
+# Production monitoring
 management:
   endpoints:
     web:
@@ -29,6 +34,7 @@ management:
       probes:
         enabled: true
 
+# Swagger / OpenAPI
 springdoc:
   api-docs:
     path: /api-docs
@@ -36,42 +42,51 @@ springdoc:
   swagger-ui:
     path: /swagger-ui.html
 
+# Logging
 logging:
   level:
     root: INFO
-    com.example.backend: DEBUG
-    org.flywaydb: DEBUG
-    org.springframework.boot.autoconfigure.flyway: DEBUG
+    com.example.backend: INFO
+    org.flywaydb: INFO
+    org.springframework.boot.autoconfigure.flyway: INFO
 
+# Application configuration
 app:
+
+  # JWT Security
   security:
     jwt:
-      secret: "7f3c9a2e8b1d6f4a9c7e2b5d8a1f6c3e9d2b7a5f8c4e1d6"
-      access-token-expiration: 900000
-      refresh-token-expiration-ms: 2592000000
+      secret: ${APP_SECURITY_JWT_SECRET}
+      access-token-expiration: ${APP_SECURITY_JWT_ACCESS_TOKEN_EXPIRATION:900000}
+      refresh-token-expiration-ms: ${APP_SECURITY_JWT_REFRESH_TOKEN_EXPIRATION_MS:2592000000}
 
+  # Cloudinary - PDF Storage
   storage:
     cloudinary:
-      cloud-name: dfbejubpc
-      api-key: 485251416349424
-      api-secret: UfENik2rEtoPXz-qmeKEzsnj5oo
+      cloud-name: ${APP_STORAGE_CLOUDINARY_CLOUD_NAME}
+      api-key: ${APP_STORAGE_CLOUDINARY_API_KEY}
+      api-secret: ${APP_STORAGE_CLOUDINARY_API_SECRET}
+
+  # NVIDIA AI - LLM and Embeddings
   ai:
     nvidia:
-      api-key: "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"
-      base-url: https://integrate.api.nvidia.com/v1
-      embedding-model: nvidia/nemotron-3.5-embed-1b
-      chat-model: nvidia/nemotron-3.5-lightning-30b-a3b
-      chat-max-tokens: 2048
-      connect-timeout-seconds: 10
-      read-timeout-seconds: 120
-      stream-timeout-seconds: 180
+      api-key: ${APP_AI_NVIDIA_API_KEY}
+      base-url: ${APP_AI_NVIDIA_BASE_URL:https://integrate.api.nvidia.com/v1}
+      embedding-model: ${APP_AI_NVIDIA_EMBEDDING_MODEL:nvidia/nemotron-3.5-embed-1b}
+      chat-model: ${APP_AI_NVIDIA_CHAT_MODEL:nvidia/nemotron-3.5-lightning-30b-a3b}
+      chat-max-tokens: ${APP_AI_NVIDIA_CHAT_MAX_TOKENS:2048}
+      connect-timeout-seconds: ${APP_AI_NVIDIA_CONNECT_TIMEOUT_SECONDS:10}
+      read-timeout-seconds: ${APP_AI_NVIDIA_READ_TIMEOUT_SECONDS:120}
+      stream-timeout-seconds: ${APP_AI_NVIDIA_STREAM_TIMEOUT_SECONDS:180}
 
+  # Qdrant - Vector Database
   vector:
     qdrant:
-      url: https://a0749dec-d81e-4dc2-830a-fdb83943a05e.us-west-2-0.aws.cloud.qdrant.io
-      api-key: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIiwic3ViamVjdCI6ImFwaS1rZXk6OWMxZGE0MGMtNDk4Ni00MDczLWI2MjgtOWE4OTdmMDU3MDBhIn0.6FJSLii5hpWPFT1IB2qlAt2pST5I22uY1lO6PNhOSM8
-      collection-name: document_chunks
-      timeout-seconds: 30
+      url: ${APP_VECTOR_QDRANT_URL}
+      api-key: ${APP_VECTOR_QDRANT_API_KEY}
+      collection-name: ${APP_VECTOR_QDRANT_COLLECTION_NAME:document_chunks}
+      timeout-seconds: ${APP_VECTOR_QDRANT_TIMEOUT_SECONDS:30}
+
       orphan-sweep:
-        enabled: true
-        interval-millis: 3600000
+        enabled: ${APP_VECTOR_QDRANT_ORPHAN_SWEEP_ENABLED:true}
+        interval-millis: ${APP_VECTOR_QDRANT_ORPHAN_SWEEP_INTERVAL_MILLIS:3600000}
