@@ -25,6 +25,7 @@ object AppColors {
     val Icon = Accent
     val Muted = Color(0xFF6E756F)
     val Error = Color(0xFFB3261E)
+    val Warning = Color(0xFFD97706)
 
     val DarkInk = Color(0xFFE8E6E1)
     val DarkSurface = Color(0xFF131715)

@@ -3,6 +3,7 @@ package com.ragclient.android.feature.shell
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -51,6 +52,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -73,6 +75,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.ragclient.android.R
@@ -109,6 +112,15 @@ fun AppShell(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
+    // Upload feedback is a toast, not a banner: it must not cover the canvas
+    // or the manager headers while a file is moving.
+    LaunchedEffect(state.toast) {
+        state.toast?.let { text ->
+            Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
+            viewModel.onIntent(ShellIntent.ToastShown)
+        }
+    }
+
     val picker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri -> uri?.let { viewModel.onIntent(ShellIntent.Upload(it)) } }
@@ -140,6 +152,16 @@ fun AppShell(
             popUpTo(navController.graph.findStartDestination().id) { inclusive = true }
         }
     }
+
+    val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
+    // The managers and the viewer draw their own back header; a hamburger and
+    // app title above it was a second, duplicate chrome row.
+    val ownsHeader = currentRoute in setOf(
+        Routes.CHATS,
+        Routes.DOCUMENTS,
+        Routes.VIEWER_PATTERN,
+        Routes.STAGED_VIEWER_PATTERN
+    )
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -196,7 +218,21 @@ fun AppShell(
         Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
             topBar = {
-                ShellTopBar(onMenu = { scope.launch { drawerState.open() } })
+                if (ownsHeader) {
+                    // Consume the status bar so the screen's own header starts
+                    // below it, without drawing any chrome of our own.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.background)
+                            .windowInsetsPadding(WindowInsets.statusBars.only(WindowInsetsSides.Top))
+                            .windowInsetsPadding(
+                                WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal)
+                            )
+                    )
+                } else {
+                    ShellTopBar(onMenu = { scope.launch { drawerState.open() } })
+                }
             }
         ) { padding ->
             Column(

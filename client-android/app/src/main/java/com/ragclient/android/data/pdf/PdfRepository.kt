@@ -26,6 +26,11 @@ class OpenedPdf(
 ) {
     val pageCount: Int get() = renderer.pageCount
 
+    /** Height/width per page, so the scroll list can reserve exact page heights before rendering. */
+    fun pageAspects(): List<Float> = (0 until pageCount).map { index ->
+        renderer.openPage(index).use { page -> page.height.toFloat() / page.width }
+    }
+
     fun render(pageIndex: Int, widthPx: Int): ImageBitmap {
         require(pageIndex in 0 until pageCount)
         return renderer.openPage(pageIndex).use { page ->

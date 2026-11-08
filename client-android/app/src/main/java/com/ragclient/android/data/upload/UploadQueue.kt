@@ -31,6 +31,12 @@ data class UploadJob(
     val stagedPath: String? = null
 )
 
+data class UploadOutcome(
+    val workId: String,
+    val fileName: String,
+    val succeeded: Boolean
+)
+
 /**
  * The upload queue, backed by WorkManager rather than an in-memory flag so
  * it survives the app being closed, swiped away or rebooted.
@@ -125,6 +131,26 @@ class UploadQueue @Inject constructor(
                         stagedPath = info.tags.firstOrNull { it.startsWith("/") }
                     )
                 }
+        }
+
+    /**
+     * Terminal states, kept apart from [observe] so a finished job never
+     * becomes a drawer row. WorkManager retains these for days, so a caller
+     * must only react to ids it saw live in this process.
+     */
+    fun outcomes(): Flow<List<UploadOutcome>> =
+        workManager.getWorkInfosByTagFlow(UploadWorker.TAG).map { infos ->
+            infos.filter {
+                it.state == WorkInfo.State.SUCCEEDED || it.state == WorkInfo.State.FAILED
+            }.map { info ->
+                UploadOutcome(
+                    workId = info.id.toString(),
+                    fileName = info.outputData.getString(UploadWorker.KEY_FILE_NAME)
+                        ?: info.progress.getString(UploadWorker.KEY_FILE_NAME)
+                        ?: "Document",
+                    succeeded = info.state == WorkInfo.State.SUCCEEDED
+                )
+            }
         }
 
     private companion object {

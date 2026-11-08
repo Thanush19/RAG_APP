@@ -43,7 +43,29 @@ class ShellViewModel @Inject constructor(
         // The queue lives in WorkManager's own storage, so this list is
         // rebuilt from scratch after the process was killed.
         viewModelScope.launch {
-            uploadQueue.observe().collect { reduceResult(ShellResult.UploadsChanged(it)) }
+            uploadQueue.observe().collect {
+                liveUploadIds += it.map { job -> job.workId }
+                reduceResult(ShellResult.UploadsChanged(it))
+            }
+        }
+        viewModelScope.launch {
+            uploadQueue.outcomes().collect { outcomes ->
+                outcomes.forEach { outcome ->
+                    // Finished work is retained across launches; only jobs
+                    // this process watched live may toast, once each.
+                    if (outcome.workId in liveUploadIds && toasted.add(outcome.workId)) {
+                        reduceResult(
+                            ShellResult.Toast(
+                                if (outcome.succeeded) {
+                                    "Uploaded ${outcome.fileName}"
+                                } else {
+                                    "Couldn't upload ${outcome.fileName}"
+                                }
+                            )
+                        )
+                    }
+                }
+            }
         }
         // Documents move UPLOADED -> PROCESSING -> READY on the server,
         // so the list is polled faster while anything is still working.
@@ -69,7 +91,7 @@ class ShellViewModel @Inject constructor(
                 when (val staged = uploadStager.stage(intent.uri)) {
                     is StagedUpload.Ready -> {
                         uploadQueue.enqueue(staged.file)
-                        reduceResult(ShellResult.Banner(QUEUED))
+                        reduceResult(ShellResult.Toast("Uploading ${staged.file.name}…"))
                     }
                     StagedUpload.TooLarge ->
                         reduceResult(ShellResult.Banner("Files must be 10 MB or smaller."))
@@ -112,6 +134,8 @@ class ShellViewModel @Inject constructor(
             ShellIntent.SignOut -> viewModelScope.launch { authRepository.signOut() }
 
             ShellIntent.BannerShown -> reduceResult(ShellResult.BannerCleared)
+
+            ShellIntent.ToastShown -> reduceResult(ShellResult.ToastCleared)
         }
     }
 
@@ -132,9 +156,11 @@ class ShellViewModel @Inject constructor(
     override fun reduce(state: ShellState, result: ShellResult): ShellState =
         ShellReducer.reduce(state, result)
 
+    private val liveUploadIds = mutableSetOf<String>()
+    private val toasted = mutableSetOf<String>()
+
     private companion object {
         const val BUSY_POLL = 5_000L
         const val IDLE_POLL = 30_000L
-        const val QUEUED = "Added to the upload queue — it continues if you close the app."
     }
 }

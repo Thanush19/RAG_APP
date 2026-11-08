@@ -81,7 +81,9 @@ class UploadWorker @AssistedInject constructor(
             LibraryOutcome.Ok -> {
                 file.parentFile?.deleteRecursively()
                 notifier.markFinished(jobId, fileName)
-                Result.success()
+                // Progress is cleared once work finishes, so the name rides
+                // home in the output data for the completion toast.
+                Result.success(workDataOf(KEY_FILE_NAME to fileName))
             }
 
             is LibraryOutcome.Failed -> handleFailure(jobId, fileName, outcome)

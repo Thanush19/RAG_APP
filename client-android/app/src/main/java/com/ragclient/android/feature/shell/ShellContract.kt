@@ -10,7 +10,8 @@ data class ShellState(
     val conversations: List<ConversationSummary> = emptyList(),
     val documents: List<LibraryDocument> = emptyList(),
     val uploads: List<UploadJob> = emptyList(),
-    val banner: String? = null
+    val banner: String? = null,
+    val toast: String? = null
 )
 
 sealed interface ShellIntent {
@@ -24,6 +25,7 @@ sealed interface ShellIntent {
     data class RetryDocument(val documentId: String) : ShellIntent
     data object SignOut : ShellIntent
     data object BannerShown : ShellIntent
+    data object ToastShown : ShellIntent
 }
 
 sealed interface ShellResult {
@@ -33,6 +35,8 @@ sealed interface ShellResult {
     data class UploadsChanged(val uploads: List<UploadJob>) : ShellResult
     data class Banner(val text: String) : ShellResult
     data object BannerCleared : ShellResult
+    data class Toast(val text: String) : ShellResult
+    data object ToastCleared : ShellResult
 }
 
 object ShellReducer {
@@ -52,5 +56,9 @@ object ShellReducer {
         is ShellResult.Banner -> state.copy(banner = result.text)
 
         ShellResult.BannerCleared -> state.copy(banner = null)
+
+        is ShellResult.Toast -> state.copy(toast = result.text)
+
+        ShellResult.ToastCleared -> state.copy(toast = null)
     }
 }

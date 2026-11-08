@@ -9,27 +9,34 @@ import com.ragclient.android.data.pdf.PdfRepository
 import com.ragclient.android.data.repository.DocumentRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class ViewerState(
     val documentId: String = "",
+    val fileName: String = "",
     val isLoading: Boolean = true,
     val pageCount: Int = 0,
     val initialPage: Int = 0,
     val error: String? = null,
-    val pages: Map<Int, ImageBitmap> = emptyMap()
+    val pageAspects: List<Float> = emptyList()
 )
 
 sealed interface ViewerIntent {
-    data class PageVisible(val index: Int, val widthPx: Int) : ViewerIntent
     data object Retry : ViewerIntent
 }
 
 sealed interface ViewerResult {
-    data class Opened(val pageCount: Int, val initialPage: Int) : ViewerResult
-    data class PageRendered(val index: Int, val bitmap: ImageBitmap) : ViewerResult
+    data class Opened(
+        val pageCount: Int,
+        val initialPage: Int,
+        val fileName: String,
+        val pageAspects: List<Float>
+    ) : ViewerResult
     data class Failed(val message: String) : ViewerResult
     data object Loading : ViewerResult
 }
@@ -41,11 +48,11 @@ object ViewerReducer {
         is ViewerResult.Opened -> state.copy(
             isLoading = false,
             pageCount = result.pageCount,
+            fileName = result.fileName,
+            pageAspects = result.pageAspects,
             initialPage = result.initialPage.coerceIn(0, (result.pageCount - 1).coerceAtLeast(0)),
             error = null
         )
-        is ViewerResult.PageRendered ->
-            state.copy(pages = state.pages + (result.index to result.bitmap))
         is ViewerResult.Failed -> state.copy(isLoading = false, error = result.message)
     }
 }
@@ -80,8 +87,6 @@ class ViewerViewModel @Inject constructor(
     override fun handle(intent: ViewerIntent) {
         when (intent) {
             ViewerIntent.Retry -> load()
-
-            is ViewerIntent.PageVisible -> renderPage(intent.index, intent.widthPx)
         }
     }
 
@@ -102,7 +107,9 @@ class ViewerViewModel @Inject constructor(
             }
             outcome.onSuccess { handle ->
                 opened = handle
-                reduceResult(ViewerResult.Opened(handle.pageCount, startPage))
+                val name = if (staged) stagedName else libraryName()
+                val aspects = withContext(Dispatchers.IO) { handle.pageAspects() }
+                reduceResult(ViewerResult.Opened(handle.pageCount, startPage, name, aspects))
             }.onFailure { error ->
                 reduceResult(
                     ViewerResult.Failed(
@@ -116,20 +123,18 @@ class ViewerViewModel @Inject constructor(
         }
     }
 
-    private fun renderPage(index: Int, widthPx: Int) {
-        val handle = opened ?: return
-        if (index !in 0 until handle.pageCount || state.value.pages.containsKey(index)) {
-            return
+    private suspend fun libraryName(): String =
+        documentRepository.observeLibrary().first()
+            .firstOrNull { it.id == documentId }?.fileName ?: "Document"
+
+    /**
+     * The calling page composable owns the returned bitmap, so scrolling away
+     * from a page releases it instead of accumulating the whole document.
+     */
+    suspend fun renderPage(index: Int, widthPx: Int): ImageBitmap? =
+        renderLock.withLock {
+            runCatching { opened?.render(index, widthPx) }.getOrNull()
         }
-        viewModelScope.launch {
-            renderLock.withLock {
-                runCatching { handle.render(index, widthPx) }
-                    .onSuccess { bitmap ->
-                        reduceResult(ViewerResult.PageRendered(index, bitmap))
-                    }
-            }
-        }
-    }
 
     override fun reduce(state: ViewerState, result: ViewerResult): ViewerState =
         ViewerReducer.reduce(state, result)

@@ -10,6 +10,7 @@ import compose.icons.feathericons.Menu
 import compose.icons.feathericons.MessageCircle
 import compose.icons.feathericons.MoreVertical
 import compose.icons.feathericons.Paperclip
+import compose.icons.feathericons.Plus
 import compose.icons.feathericons.RotateCw
 import compose.icons.feathericons.Search
 import compose.icons.feathericons.Send
@@ -40,6 +41,7 @@ object AppIcons {
     val Upload: ImageVector = FeatherIcons.Upload
     // Feather has no pushpin; the paperclip is its "attach a file" glyph.
     val Attach: ImageVector = FeatherIcons.Paperclip
+    val Add: ImageVector = FeatherIcons.Plus
     val Retry: ImageVector = FeatherIcons.RotateCw
     val Settings: ImageVector = FeatherIcons.Settings
     val Back: ImageVector = FeatherIcons.ArrowLeft

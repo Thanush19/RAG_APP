@@ -2209,3 +2209,182 @@ exit 0, `BUILD SUCCESSFUL`, **63** tests, 0 failures, installed on
   is only permitted in `src/dev`, so a prod build cannot sign in and therefore
   cannot reach Profile. Verifying it on-device needs a real prod HTTPS
   endpoint, which is out of scope for this session.
+
+## 32. Phase N — composer add button, upload toasts, Profile storage meter
+
+### 32.1 The ask
+Three parts, from three screenshots (ChatGPT-style composer, the current
+new-chat canvas, and the "Added to the upload queue" banner):
+1. The new-chat canvas buttons were wrong: the attach entry belongs **in the
+   text field** (a "+" disc like ChatGPT's), and tapping it opens a **dialog**
+   with "upload a new file" / "ask from an existing file", each doing its
+   respective action.
+2. The "Added to the upload queue — it continues if you close the app." banner
+   must go, in chat **and** in Profile; upload feedback should be a **toast**
+   ("Uploading…", "Uploaded").
+3. Profile needs a storage indicator under the Documents row against the
+   per-user 50 MB cap: last 10% of free space red, last 30% orange, else
+   emerald.
+
+### 32.2 Composer add button + dialog (`feature/chat/ChatScreen.kt`)
+- `PromptBar` gained `onAttach` and a `leadingIcon`: a 44dp
+  `surfaceVariant` disc with `AppIcons.Add` (Feather `Plus`, new facade entry),
+  mirroring the send disc in the trailing slot so the focus outline wraps both.
+- `AttachDialog` is one `AlertDialog` with two steps: the choice rows
+  (`AttachOption`: Upload new file / Ask from an existing file), then a
+  `LazyColumn` of `DocumentPickRow` (max 320dp) or "Nothing uploaded yet.".
+  Upload closes the dialog and launches the SAF picker; picking a file closes
+  it and opens that document's scoped thread. No confirm button — tapping
+  outside dismisses.
+- `EmptyCanvas` is now scoped-only (names the file). An unscoped new chat is a
+  blank canvas above the composer, exactly like the reference screenshot; the
+  two `OutlinedButton`s and the inline expandable list are gone.
+
+### 32.3 Upload feedback is a toast, everywhere
+- `ShellState.toast` + `ShellResult.Toast/ToastCleared` + `ShellIntent.ToastShown`;
+  `AppShell` shows it in a `LaunchedEffect(state.toast)` via
+  `Toast.makeText(..., LENGTH_SHORT)` and immediately clears it. One path
+  serves chat, Profile and both managers because they all send
+  `ShellIntent.Upload`.
+- Enqueue now toasts `Uploading <name>…`; the `QUEUED` banner constant is
+  deleted, so the queue sentence no longer appears anywhere. Error banners
+  (too large / unreadable / delete / reprocess) are unchanged.
+- Completion: `UploadQueue.outcomes()` is a new flow over the **terminal**
+  WorkInfo states (SUCCEEDED/FAILED), kept separate from `observe()` so
+  finished jobs never become drawer rows. `ShellViewModel` toasts once per
+  outcome, and only for ids it saw live in this process (`liveUploadIds` +
+  `toasted` sets) — WorkManager retains finished work for days, so without
+  that guard every launch would re-toast old uploads.
+- **Bug found on device:** the first completion toast read "Uploaded
+  Document". WorkManager clears `progress` when work finishes, so the name
+  lookup fell back. `UploadWorker` now returns
+  `Result.success(workDataOf(KEY_FILE_NAME to fileName))` and `outcomes()`
+  reads output data first. Re-verified: "Uploaded phaseN.pdf".
+- The animated `UploadStrip` (progress + cancel) stays; it is the only
+  place a running upload can be cancelled, and the ask was about the banner.
+
+### 32.4 Profile storage meter (`feature/profile/StorageMeter.kt`)
+- The cap is real server-side: `DocumentService.MAX_USER_STORAGE =
+  50 * 1024 * 1024`. `USER_STORAGE_BYTES` mirrors it; used bytes are
+  `state.documents.sumOf { it.fileSize }`, so the meter needs no new endpoint.
+- `storageLevel(used, quota)`: free ≤ 10% → `Critical` (red `AppColors.Error`),
+  free ≤ 30% → `Warning` (new `AppColors.Warning` 0xFFD97706), else `Normal`
+  (emerald `Accent`). Bar and caption share the tier colour.
+- Caption reads whole binary MB ("Used 22% · 39 MB free of 50 MB") because the
+  cap is 50 MiB; the decimal `formatSize` would have said "52.4 MB" and
+  contradicted the server's own 50 MB wording. `formatSize` moved to
+  `core/designsystem/Format.kt` and is shared with the documents footers.
+- `drawStopIndicator = {}`: Material3's default end dot is drawn in the bar
+  colour at the 100% end and read as "full" at 22% (caught in a screenshot).
+- Placement: Documents `StatLine` + meter in one 6dp-spaced column, so the
+  meter hugs its row instead of floating 16dp away.
+
+### 32.5 Build and tests
+`assembleDevDebug assembleProdDebug testDevDebugUnitTest installDevDebug` →
+exit 0, `BUILD SUCCESSFUL`, **69** tests (63 + 6 `StorageLevelTest` covering
+0/69.9/70/89.9/90/100/120% of a 1000-byte quota and the default cap),
+0 failures. Four install cycles: initial, toast-name fix, stop-dot fix
+(the meter/stop-dot change rode the last two).
+
+### 32.6 Device verification (2026-11-08, LAN URL)
+- New chat: blank canvas, "+" disc leading in the composer (dump
+  `content-desc="Add a document"`). Tap → dialog "Add to this chat" with both
+  rows; "Ask from an existing file" → "Ask from a file" list; picking
+  `preview_test_cert.pdf` opened its scoped thread ("Ask questions from …" +
+  "Asking preview_test_cert.pdf" chip).
+- Upload via dialog → SAF picker (its search box found the pushed test file
+  faster than scrolling the date-sorted list) → toast **"Uploading
+  phaseN.pdf…"** captured on screen with the strip at 100% and **no banner**
+  (`grep -c "upload queue"` on the dump = 0); ~5s later toast **"Uploaded
+  phaseN.pdf"** captured, strip gone.
+- Profile: meter under Documents, emerald, "Used 22% · 39 MB free of 50 MB";
+  final screenshot confirms the stop dot is gone. Orange/red tiers are
+  unit-tested only — reaching them on device would mean uploading ≥35 MB.
+- Cleanup of my own artifacts: three `phaseN.pdf` uploads deleted through the
+  Documents manager (menu correctly showed no Reprocess for READY), the five
+  empty "New chat" threads this verification created (every New chat open
+  persists a thread) deleted through the Chats manager, and the pushed
+  `/sdcard/Download/phaseN.pdf` removed. Older empty threads (28m/7h) predate
+  this phase and were left alone.
+
+### 32.7 Still open / notes
+- The delete/reprocess **banner** still overlays manager headers (§30.8);
+  only upload feedback moved to toasts.
+- `sample5.pdf` still appears twice in the library — the pre-existing
+  duplicate-on-retry suspect (§20.5, task #31), untouched by this phase.
+- Idempotency key (#31) and session drop after backend restart (#32) remain
+  the next backend-side candidates.
+
+## 33. Phase O — canvas taglines and back-only headers (2026-11-08)
+
+### 33.1 The ask
+Two screenshots: the new-chat canvas is empty before *and* after a file is
+uploaded or picked, and the managers/viewer stack the shell's hamburger +
+"Thagaval" bar on top of their own back header. Wanted: a tagline before any
+file and a file-context tagline after; no hamburger/title on Documents,
+viewer and Chats — just their back button; titles "Chat history",
+"Documents uploaded", and the filename in the viewer.
+
+### 33.2 Canvas taglines (`ChatScreen.kt`, `EmptyCanvas`)
+- Unscoped: Display "Ask your documents anything." + Body line that names the
+  newest library file (`documents.maxByOrNull { it.createdAt }`):
+  "`<file>` is in your library — tap + to ask from it, or ask across
+  everything." With an empty library it falls back to "Tap + to upload a PDF
+  and start asking." so the canvas reacts to the first upload without any
+  auto-scoping (upload behaviour is unchanged, taglines only).
+- Scoped: "Ask questions from" + the filename in Display, then a status-aware
+  line — READY: "Every answer in this thread comes from this file alone.";
+  UPLOADED/PROCESSING: "Still indexing — this thread answers from it the
+  moment it is ready."; FAILED: "Indexing failed — retry it from Documents
+  uploaded." The scoped document is looked up from `state.documents` by
+  `scopedDocumentId`, so the line tracks reprocess/delete live.
+
+### 33.3 One header per screen (`AppShell.kt`)
+`navController.currentBackStackEntryAsState()` route ∈ {CHATS, DOCUMENTS,
+VIEWER_PATTERN, STAGED_VIEWER_PATTERN} → the Scaffold `topBar` becomes an
+insets-only `Box` (statusBars top + displayCutout horizontal) instead of
+`ShellTopBar`. The screens' own back headers then sit directly under the
+status bar with no per-screen inset changes; chat/search/profile keep the
+hamburger + title. Drawer navigation is unchanged (the drawer still opens
+from chat).
+
+### 33.4 Titles and the header type scale
+- Chats → "Chat history", Documents → "Documents uploaded", viewer → the
+  filename (`ViewerState.fileName`, filled by `ViewerResult.Opened` from the
+  staged name or a one-shot `observeLibrary().first()` lookup) with the page
+  count moved to a quiet trailing label.
+- First device pass showed "Documents uploaded" wrapping to two lines at
+  `AppType.Display` (26sp serif) and crowding the status bar. Added
+  `AppType.Title` (serif 22sp/30sp) and used it, single-line + ellipsis, for
+  all three back-only headers; long filenames now ellipsize instead of
+  wrapping. Display stays the hero style for answers and the canvas.
+
+### 33.5 Build and tests
+`assembleDevDebug assembleProdDebug testDevDebugUnitTest installDevDebug` →
+exit 0, `BUILD SUCCESSFUL`, **69** tests, 0 failures (no new tests: the
+taglines are pure presentation over existing state). Two install cycles:
+initial Phase O build, then the Title-scale fix.
+
+### 33.6 Device verification (2026-11-08, LAN URL)
+- New chat: "Ask your documents anything." + "sample5.pdf is in your library
+  — tap + to ask from it, or ask across everything."; chat keeps the shell
+  bar ("Thagaval" present in the dump, as intended).
+- "+" → "Ask from an existing file" → `sample5.pdf`: scoped canvas shows
+  "Ask questions from / sample5.pdf / Every answer in this thread comes from
+  this file alone." plus the "Asking sample5.pdf" chip.
+- Chat history: Back + "Chat history" + new-chat pen, `grep -c
+  'Thagaval\|Open menu'` on the dump = 0. Documents uploaded: Back + title +
+  upload icon, same grep = 0, single line after the Title fix (title bounds
+  height 72px, aligned with the 68px back button). Viewer: Back +
+  "sample5.pdf" + "5 pages", grep = 0.
+- Cleanup: the two empty threads this verification created (the unscoped
+  New chat and the scoped pick) deleted through the Chat history manager;
+  list now starts at the pre-existing 43m/7h rows. Proof screenshots kept as
+  `verified_phaseO_*.png` in the session scratch dir.
+
+### 33.7 Still open / notes
+- Indexing/failed tagline branches are code-verified only; reaching them on
+  device needs a fresh upload caught mid-ingest or a forced failure.
+- The delete/reprocess banner still overlays manager headers (§30.8/§32.7).
+- #31 (upload idempotency, duplicate `sample5.pdf`) and #32 (session drop
+  after backend restart) remain the next backend-side candidates.

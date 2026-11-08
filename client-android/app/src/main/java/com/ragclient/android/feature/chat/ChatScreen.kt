@@ -25,12 +25,12 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ElevatedSuggestionChip
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -41,6 +41,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -55,6 +57,7 @@ import com.ragclient.android.core.designsystem.RagClientTheme
 import com.ragclient.android.data.repository.LibraryDocument
 import com.ragclient.android.domain.model.ChatMessage
 import com.ragclient.android.domain.model.ChatRole
+import com.ragclient.android.domain.model.DocumentStatus
 import com.ragclient.android.domain.model.RagSourceModel
 
 @Composable
@@ -84,6 +87,7 @@ private fun ChatContent(
     onOpenDocumentChat: (documentId: String) -> Unit
 ) {
     val listState = rememberLazyListState()
+    var showAttach by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.messages.size, state.streamingText.length, state.error) {
         val last = state.messages.size + if (state.isGenerating) 1 else 0
@@ -106,10 +110,10 @@ private fun ChatContent(
             if (state.messages.isEmpty() && !state.isGenerating) {
                 item {
                     EmptyCanvas(
-                        scopedDocumentName = state.scopedDocumentName,
-                        documents = state.documents,
-                        onUploadDocument = onUploadDocument,
-                        onOpenDocumentChat = onOpenDocumentChat
+                        scopedDocument = state.documents.firstOrNull {
+                            it.id == state.scopedDocumentId
+                        },
+                        documents = state.documents
                     )
                 }
             }
@@ -144,25 +148,37 @@ private fun ChatContent(
             onValueChange = { onIntent(ChatIntent.ChangePrompt(it)) },
             onSend = { onIntent(ChatIntent.Send) },
             onStop = { onIntent(ChatIntent.Stop) },
-            onClearScope = { onIntent(ChatIntent.ClearScope) }
+            onClearScope = { onIntent(ChatIntent.ClearScope) },
+            onAttach = { showAttach = true }
         )
+
+        if (showAttach) {
+            AttachDialog(
+                documents = state.documents,
+                onUpload = {
+                    showAttach = false
+                    onUploadDocument()
+                },
+                onPick = {
+                    showAttach = false
+                    onOpenDocumentChat(it)
+                },
+                onDismiss = { showAttach = false }
+            )
+        }
     }
 }
 
 /**
- * The blank-thread screen. A scoped thread already knows its file, so it just
- * names it. An unscoped new chat instead offers the two ways to get a document
- * into the conversation: upload one, or pick one already in the library.
+ * The blank-thread screen. A scoped thread names its file and says what the
+ * file is doing right now; an unscoped one carries a tagline, and names the
+ * newest library file once an upload has landed so the canvas is never mute.
  */
 @Composable
 private fun EmptyCanvas(
-    scopedDocumentName: String?,
-    documents: List<LibraryDocument>,
-    onUploadDocument: () -> Unit,
-    onOpenDocumentChat: (String) -> Unit
+    scopedDocument: LibraryDocument?,
+    documents: List<LibraryDocument>
 ) {
-    var showDocuments by remember { mutableStateOf(false) }
-
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -170,14 +186,14 @@ private fun EmptyCanvas(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        if (scopedDocumentName != null) {
+        if (scopedDocument != null) {
             Text(
                 text = "Ask questions from",
                 style = AppType.Body,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
-                text = scopedDocumentName,
+                text = scopedDocument.fileName,
                 style = AppType.Display,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -185,30 +201,61 @@ private fun EmptyCanvas(
                 color = MaterialTheme.colorScheme.onBackground
             )
             Text(
-                text = "Only this document is searched, and this thread stays with it.",
+                text = when (scopedDocument.status) {
+                    DocumentStatus.UPLOADED, DocumentStatus.PROCESSING ->
+                        "Still indexing — this thread answers from it the moment it is ready."
+                    DocumentStatus.FAILED ->
+                        "Indexing failed — retry it from Documents uploaded."
+                    else -> "Every answer in this thread comes from this file alone."
+                },
                 style = AppType.Body,
+                textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         } else {
-            Icon(
-                imageVector = AppIcons.Attach,
-                contentDescription = null,
-                tint = AppColors.Icon,
-                modifier = Modifier.size(40.dp)
+            val newest = documents.maxByOrNull { it.createdAt.orEmpty() }
+            Text(
+                text = "Ask your documents anything.",
+                style = AppType.Display,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onBackground
             )
-            OutlinedButton(
-                onClick = onUploadDocument,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Upload new file", style = AppType.Body)
-            }
-            OutlinedButton(
-                onClick = { showDocuments = !showDocuments },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Check existing file", style = AppType.Body)
-            }
-            if (showDocuments) {
+            Text(
+                text = if (newest == null) {
+                    "Tap + to upload a PDF and start asking."
+                } else {
+                    "${newest.fileName} is in your library — tap + to ask from it, " +
+                        "or ask across everything."
+                },
+                style = AppType.Body,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+/**
+ * The composer's add button opens this: upload a new file, or point the
+ * thread at one already in the library. The file list is a second step of
+ * the same dialog so the choice never moves away from the composer.
+ */
+@Composable
+private fun AttachDialog(
+    documents: List<LibraryDocument>,
+    onUpload: () -> Unit,
+    onPick: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var picking by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(if (picking) "Ask from a file" else "Add to this chat")
+        },
+        text = {
+            if (picking) {
                 if (documents.isEmpty()) {
                     Text(
                         text = "Nothing uploaded yet.",
@@ -216,15 +263,59 @@ private fun EmptyCanvas(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 } else {
-                    documents.forEach { document ->
-                        DocumentPickRow(
-                            document = document,
-                            onClick = { onOpenDocumentChat(document.id) }
-                        )
+                    LazyColumn(
+                        modifier = Modifier.heightIn(max = 320.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(documents, key = { it.id }) { document ->
+                            DocumentPickRow(
+                                document = document,
+                                onClick = { onPick(document.id) }
+                            )
+                        }
                     }
                 }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    AttachOption(
+                        icon = AppIcons.Upload,
+                        label = "Upload new file",
+                        onClick = onUpload
+                    )
+                    AttachOption(
+                        icon = AppIcons.File,
+                        label = "Ask from an existing file",
+                        onClick = { picking = true }
+                    )
+                }
             }
-        }
+        },
+        confirmButton = {}
+    )
+}
+
+@Composable
+private fun AttachOption(icon: ImageVector, label: String, onClick: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(AppShapes.Card)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 12.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = AppColors.Icon,
+            modifier = Modifier.size(18.dp)
+        )
+        Text(
+            text = label,
+            style = AppType.Body,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(start = 10.dp)
+        )
     }
 }
 
@@ -435,7 +526,8 @@ private fun PromptBar(
     onValueChange: (String) -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
-    onClearScope: () -> Unit
+    onClearScope: () -> Unit,
+    onAttach: () -> Unit
 ) {
     val actionEnabled = canSend || isGenerating
 
@@ -487,6 +579,28 @@ private fun PromptBar(
                     .fillMaxWidth()
                     .heightIn(min = 52.dp, max = 160.dp),
                 shape = AppShapes.PromptBar,
+                // The add button opens the upload / existing-file dialog; it
+                // sits in the field's leading slot like the send disc does
+                // trailing, so the focus outline wraps both.
+                leadingIcon = {
+                    IconButton(
+                        onClick = onAttach,
+                        modifier = Modifier
+                            .padding(start = 6.dp)
+                            .size(44.dp)
+                            .background(
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                shape = CircleShape
+                            )
+                    ) {
+                        Icon(
+                            imageVector = AppIcons.Add,
+                            contentDescription = "Add a document",
+                            tint = AppColors.Icon,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                },
                 // The send button lives in the field's own trailing slot so the
                 // focus outline wraps it; as a sibling of the field it sat
                 // outside the border.

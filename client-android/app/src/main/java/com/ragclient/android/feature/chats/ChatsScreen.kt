@@ -125,8 +125,10 @@ private fun ChatsContent(
                 Icon(AppIcons.Back, contentDescription = "Back", tint = AppColors.Icon)
             }
             Text(
-                text = "Chats",
-                style = AppType.Display,
+                text = "Chat history",
+                style = AppType.Title,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 color = MaterialTheme.colorScheme.onBackground,
                 modifier = Modifier
                     .weight(1f)

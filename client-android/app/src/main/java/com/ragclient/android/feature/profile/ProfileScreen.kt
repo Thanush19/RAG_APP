@@ -46,6 +46,7 @@ fun ProfileScreen(
     ProfileContent(
         session = state.session,
         documentCount = state.documents.size,
+        usedBytes = state.documents.sumOf { it.fileSize },
         chatCount = state.conversations.size,
         onSignOut = { viewModel.onIntent(ShellIntent.SignOut) },
         onOpenDocuments = onOpenDocuments,
@@ -64,7 +65,8 @@ private fun ProfileContent(
     onSignOut: () -> Unit,
     onOpenDocuments: () -> Unit = {},
     onOpenChats: () -> Unit = {},
-    backendUrl: String? = null
+    backendUrl: String? = null,
+    usedBytes: Long = 0L
 ) {
     Column(
         modifier = Modifier
@@ -104,7 +106,10 @@ private fun ProfileContent(
             }
         }
 
-        StatLine(label = "Documents", value = documentCount.toString(), onClick = onOpenDocuments)
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            StatLine(label = "Documents", value = documentCount.toString(), onClick = onOpenDocuments)
+            StorageMeter(usedBytes = usedBytes)
+        }
         StatLine(label = "Chats", value = chatCount.toString(), onClick = onOpenChats)
         backendUrl?.let { StatLine(label = "Backend", value = it) }
 
@@ -171,6 +176,7 @@ private fun ProfilePreview() {
         documentCount = 3,
         chatCount = 7,
         onSignOut = {},
-        backendUrl = "http://192.168.1.5:8080/"
+        backendUrl = "http://192.168.1.5:8080/",
+        usedBytes = 12_500_000
     )
 }

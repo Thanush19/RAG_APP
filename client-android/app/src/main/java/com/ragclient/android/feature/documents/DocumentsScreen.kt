@@ -47,6 +47,7 @@ import com.ragclient.android.core.designsystem.ConfirmAction
 import com.ragclient.android.core.designsystem.ConfirmDialog
 import com.ragclient.android.core.designsystem.RagClientTheme
 import com.ragclient.android.core.designsystem.color
+import com.ragclient.android.core.designsystem.formatSize
 import com.ragclient.android.core.designsystem.label
 import com.ragclient.android.data.repository.LibraryDocument
 import com.ragclient.android.domain.model.ConversationSummary
@@ -115,8 +116,10 @@ private fun DocumentsContent(
                 Icon(AppIcons.Back, contentDescription = "Back", tint = AppColors.Icon)
             }
             Text(
-                text = "Documents",
-                style = AppType.Display,
+                text = "Documents uploaded",
+                style = AppType.Title,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 color = MaterialTheme.colorScheme.onBackground,
                 modifier = Modifier
                     .weight(1f)
@@ -356,9 +359,6 @@ private fun DocumentPreview(
 }
 
 private fun plural(count: Int): String = if (count == 1) "1 chat" else "$count chats"
-
-private fun formatSize(bytes: Long): String =
-    if (bytes >= 1_000_000) "%.1f MB".format(bytes / 1_000_000f) else "${bytes / 1_000} kB"
 
 private fun addedOn(createdAt: String?): String? =
     createdAt?.take(10)?.let {

@@ -20,6 +20,14 @@ object AppType {
         letterSpacing = (-0.2).sp
     )
 
+    val Title = TextStyle(
+        fontFamily = FontFamily.Serif,
+        fontWeight = FontWeight.Normal,
+        fontSize = 22.sp,
+        lineHeight = 30.sp,
+        letterSpacing = (-0.2).sp
+    )
+
     val AnswerBody = TextStyle(
         fontFamily = FontFamily.Serif,
         fontWeight = FontWeight.Normal,
