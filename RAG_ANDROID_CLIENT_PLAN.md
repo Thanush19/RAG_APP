@@ -2388,3 +2388,67 @@ initial Phase O build, then the Title-scale fix.
 - The delete/reprocess banner still overlays manager headers (§30.8/§32.7).
 - #31 (upload idempotency, duplicate `sample5.pdf`) and #32 (session drop
   after backend restart) remain the next backend-side candidates.
+
+## 34. Phase P — preserve only chats with conversation (2026-11-08)
+
+### 34.1 The ask
+Fix empty chat persistence noted in §32.6/§33.6: previously every "New chat"
+open immediately inserted and persisted a thread row into Room (`conversations`
+table) before the user even typed or sent a question. If a new chat is opened
+and doesn't have any conversation (zero messages), do not preserve it; preserve
+only the chats that have conversation.
+
+### 34.2 Architecture changes
+- `ConversationDao.kt`:
+  - `observeRecent`: filters with `WHERE EXISTS (SELECT 1 FROM messages m WHERE m.conversationId = c.id)`.
+    Empty chats are never emitted in the drawer or Chat history list.
+  - `latest`: filters with `WHERE EXISTS (SELECT 1 FROM messages m WHERE m.conversationId = c.id)`.
+    Cold start / latest resume returns the newest thread with actual messages.
+  - `latestScopedTo`: filters with `WHERE EXISTS (SELECT 1 FROM messages m WHERE m.conversationId = c.id)`.
+    Opening a document's chat resumes an active thread or starts a fresh one.
+  - `deleteEmpty`: `DELETE FROM conversations WHERE NOT EXISTS (SELECT 1 FROM messages ...)`.
+    Purges any empty thread rows with 0 messages.
+- `ConversationRepository.kt`:
+  - `newConversation`: generates a fresh UUID and prunes empty threads without
+    inserting an empty row into Room immediately.
+  - `ensureConversation` + `appendUserMessage`: creates the conversation row with
+    the first question as title and scoped document ID when the user sends their
+    first message.
+  - `openOrCreate`, `openForDocument`, `openExisting`: prune empty threads and only
+    resume threads that contain messages.
+  - `pruneEmpty`: explicit cleanup function to purge lingering empty conversations.
+- `ChatViewModel.kt`:
+  - Initializes `scopedDocumentId` from the route or existing thread without
+    requiring a pre-persisted conversation row.
+  - Passes `current.scopedDocumentId` into `appendUserMessage` so the thread is
+    created with the proper document scope upon the first question.
+- `ShellViewModel.kt`:
+  - Calls `conversations.pruneEmpty()` on init and on refresh to clean up any legacy
+    empty threads left from earlier runs.
+
+### 34.3 Tests and build
+- Added `ConversationRepositoryTest` with 6 unit tests covering:
+  - `newConversation` generates an ID without immediate persistence.
+  - `observeConversations` only emits threads that have messages.
+  - `openOrCreate` resumes threads with messages or starts fresh without persisting.
+  - `openForDocument` resumes scoped threads with messages or starts fresh.
+  - `newConversation` prunes previous empty threads.
+  - `appendUserMessage` creates the conversation row with title and scope on first message.
+- Full test suite: **75** tests, 0 failures (`BUILD SUCCESSFUL`).
+- Flavor builds: `assembleDevDebug` and `assembleProdDebug` pass with exit 0.
+
+### 34.4 Device verification (physical SM-S711B, devDebug)
+- Installed `devDebug` on device.
+- Cold start resumed the newest active thread ("what projects has he worked on").
+- Drawer "Chats" and Chats manager ("Chat history") list only the 8 real threads;
+  all older empty "New chat" rows are gone.
+- Tapped "New chat" multiple times: canvas displayed clean blank/library prompt,
+  and no empty rows appeared in the drawer or Chats manager.
+- Profile accurately reports 8 chats (matching only threads with messages).
+
+### 34.5 Still open / notes
+- Empty chats are completely ephemeral until the first message is sent; opening
+  "New chat" or navigating away without sending a question leaves 0 empty records.
+- #31 (upload idempotency, duplicate `sample5.pdf`) and #32 (session drop after
+  backend restart) remain the next backend-side candidates.
+- Delete/reprocess banner overlaying manager headers (§30.8/§32.7) remains open.
