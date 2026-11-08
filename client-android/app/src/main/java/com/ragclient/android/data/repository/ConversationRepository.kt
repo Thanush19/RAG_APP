@@ -46,30 +46,53 @@ class ConversationRepository @Inject constructor(
         }
 
     /** Resumes the newest thread, or starts one when none exists yet. */
-    suspend fun openOrCreate(): String =
-        conversationDao.latest()?.id ?: newConversation(null)
+    suspend fun openOrCreate(): String {
+        conversationDao.deleteEmpty()
+        return conversationDao.latest()?.id ?: newConversation(null)
+    }
 
     /**
      * One thread per document, so asking the same PDF twice returns to the
      * conversation you were already having with it.
      */
-    suspend fun openForDocument(documentId: String): String =
-        conversationDao.latestScopedTo(documentId)?.id ?: newConversation(documentId)
+    suspend fun openForDocument(documentId: String): String {
+        conversationDao.deleteEmpty()
+        return conversationDao.latestScopedTo(documentId)?.id ?: newConversation(documentId)
+    }
 
     /** A tapped drawer row opens exactly that thread; a stale id starts fresh. */
-    suspend fun openExisting(conversationId: String): String =
-        if (conversationDao.exists(conversationId)) conversationId else newConversation(null)
+    suspend fun openExisting(conversationId: String): String {
+        conversationDao.deleteEmpty()
+        return if (conversationDao.exists(conversationId)) conversationId else newConversation(null)
+    }
 
+    /**
+     * Generates a fresh conversation id. The thread is only persisted to
+     * storage once it actually has messages so empty chats are not preserved.
+     */
     suspend fun newConversation(scopedDocumentId: String? = null): String {
-        val id = java.util.UUID.randomUUID().toString()
-        val now = System.currentTimeMillis()
-        conversationDao.create(
-            id = id,
-            title = "New chat",
-            scopedDocumentId = scopedDocumentId,
-            now = now
-        )
-        return id
+        conversationDao.deleteEmpty()
+        return java.util.UUID.randomUUID().toString()
+    }
+
+    suspend fun pruneEmpty() {
+        conversationDao.deleteEmpty()
+    }
+
+    suspend fun ensureConversation(
+        conversationId: String,
+        title: String = "New chat",
+        scopedDocumentId: String? = null
+    ) {
+        if (!conversationDao.exists(conversationId)) {
+            val now = System.currentTimeMillis()
+            conversationDao.create(
+                id = conversationId,
+                title = title,
+                scopedDocumentId = scopedDocumentId,
+                now = now
+            )
+        }
     }
 
     suspend fun renameToFirstQuestion(conversationId: String, question: String) {
@@ -91,7 +114,16 @@ class ConversationRepository @Inject constructor(
         conversationDao.upsert(current.copy(title = clean))
     }
 
-    suspend fun appendUserMessage(conversationId: String, text: String) {
+    suspend fun appendUserMessage(
+        conversationId: String,
+        text: String,
+        scopedDocumentId: String? = null
+    ) {
+        ensureConversation(
+            conversationId = conversationId,
+            title = text.trim().take(MAX_TITLE).ifBlank { "New chat" },
+            scopedDocumentId = scopedDocumentId
+        )
         messageDao.insert(
             MessageEntity(
                 conversationId = conversationId,

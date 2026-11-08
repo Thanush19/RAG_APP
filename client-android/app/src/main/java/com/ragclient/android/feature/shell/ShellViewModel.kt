@@ -33,6 +33,7 @@ class ShellViewModel @Inject constructor(
             authRepository.session.collect { reduceResult(ShellResult.SessionChanged(it)) }
         }
         viewModelScope.launch {
+            conversations.pruneEmpty()
             conversations.observeConversations()
                 .collect { reduceResult(ShellResult.ConversationsChanged(it)) }
         }
@@ -83,7 +84,10 @@ class ShellViewModel @Inject constructor(
 
     override fun handle(intent: ShellIntent) {
         when (intent) {
-            ShellIntent.Refresh -> viewModelScope.launch { apply(documents.refresh()) }
+            ShellIntent.Refresh -> viewModelScope.launch {
+                conversations.pruneEmpty()
+                apply(documents.refresh())
+            }
 
             is ShellIntent.Upload -> viewModelScope.launch {
                 // Copying locally is fast; the slow network part is handed

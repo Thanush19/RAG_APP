@@ -44,11 +44,13 @@ class ChatViewModel @Inject constructor(
                 else -> conversations.openExisting(requested)
             }
 
+            val initialScope = scope ?: conversations.observeScopedDocumentId(conversationId)
+                .first()
+
             reduceResult(
                 ChatResult.ConversationLoaded(
                     conversationId = conversationId,
-                    scopedDocumentId = conversations.observeScopedDocumentId(conversationId)
-                        .first()
+                    scopedDocumentId = initialScope
                 )
             )
 
@@ -95,7 +97,11 @@ class ChatViewModel @Inject constructor(
             var sources: List<RagSourceModel> = emptyList()
 
             try {
-                conversations.appendUserMessage(conversationId, question)
+                conversations.appendUserMessage(
+                    conversationId = conversationId,
+                    text = question,
+                    scopedDocumentId = current.scopedDocumentId
+                )
                 conversations.renameToFirstQuestion(conversationId, question)
 
                 ragStreamClient.askStream(

@@ -40,18 +40,27 @@ data class MessageEntity(
 @Dao
 interface ConversationDao {
 
-    @Query("SELECT * FROM conversations ORDER BY updatedAt DESC LIMIT 100")
+    @Query(
+        "SELECT c.* FROM conversations c " +
+            "WHERE EXISTS (SELECT 1 FROM messages m WHERE m.conversationId = c.id) " +
+            "ORDER BY c.updatedAt DESC LIMIT 100"
+    )
     fun observeRecent(): Flow<List<ConversationEntity>>
 
     @Query("SELECT * FROM conversations WHERE id = :id")
     fun observeById(id: String): Flow<ConversationEntity?>
 
-    @Query("SELECT * FROM conversations ORDER BY updatedAt DESC LIMIT 1")
+    @Query(
+        "SELECT c.* FROM conversations c " +
+            "WHERE EXISTS (SELECT 1 FROM messages m WHERE m.conversationId = c.id) " +
+            "ORDER BY c.updatedAt DESC LIMIT 1"
+    )
     suspend fun latest(): ConversationEntity?
 
     @Query(
-        "SELECT * FROM conversations WHERE scopedDocumentId = :documentId " +
-            "ORDER BY updatedAt DESC LIMIT 1"
+        "SELECT c.* FROM conversations c WHERE c.scopedDocumentId = :documentId " +
+            "AND EXISTS (SELECT 1 FROM messages m WHERE m.conversationId = c.id) " +
+            "ORDER BY c.updatedAt DESC LIMIT 1"
     )
     suspend fun latestScopedTo(documentId: String): ConversationEntity?
 
@@ -72,6 +81,12 @@ interface ConversationDao {
 
     @Query("DELETE FROM conversations WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<String>)
+
+    @Query(
+        "DELETE FROM conversations WHERE NOT EXISTS " +
+            "(SELECT 1 FROM messages WHERE messages.conversationId = conversations.id)"
+    )
+    suspend fun deleteEmpty()
 
     @Transaction
     suspend fun create(
