@@ -19,8 +19,12 @@ data class ApiFailure(
  * nothing to compare against `ipconfig` or the phone's Wi-Fi.
  */
 fun unreachableMessage(): String =
-    "Can't reach ${BuildConfig.API_BASE_URL}. Is this device on the same network " +
-        "as that address, and is the backend running?"
+    if (BuildConfig.IS_DEV_BUILD) {
+        "Can't reach ${BuildConfig.API_BASE_URL}. Is this device on the same network " +
+            "as that address, and is the backend running?"
+    } else {
+        "Can't reach the server. It may still be waking up — wait a moment and try again."
+    }
 
 /**
  * Turns backend error envelopes (and transport failures) into UI copy.

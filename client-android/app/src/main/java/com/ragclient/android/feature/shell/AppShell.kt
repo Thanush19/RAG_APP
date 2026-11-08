@@ -84,6 +84,8 @@ import com.ragclient.android.core.designsystem.AppIcons
 import com.ragclient.android.core.designsystem.AppShapes
 import com.ragclient.android.core.designsystem.AppType
 import com.ragclient.android.core.designsystem.ConfirmAction
+import com.ragclient.android.feature.wake.ServerWakeNotice
+import com.ragclient.android.feature.wake.rememberHostWaking
 import com.ragclient.android.core.designsystem.ConfirmDialog
 import com.ragclient.android.core.designsystem.color
 import com.ragclient.android.core.designsystem.label
@@ -108,6 +110,7 @@ fun AppShell(
     viewModel: ShellViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val hostWaking = rememberHostWaking()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -242,6 +245,11 @@ fun AppShell(
             ) {
                 // Visible on every screen, so a file picked from the new-chat
                 // canvas shows its progress without opening the drawer.
+                if (hostWaking) {
+                    ServerWakeNotice(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                }
                 state.uploads.firstOrNull()?.let { job ->
                     UploadStrip(
                         job = job,

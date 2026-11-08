@@ -46,18 +46,22 @@ import com.ragclient.android.core.designsystem.AppColors
 import com.ragclient.android.core.designsystem.AppShapes
 import com.ragclient.android.core.designsystem.AppType
 import com.ragclient.android.core.designsystem.RagClientTheme
+import com.ragclient.android.feature.wake.ServerWakeNotice
+import com.ragclient.android.feature.wake.rememberHostWaking
 
 @Composable
 fun AuthScreen(viewModel: AuthViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val waking = rememberHostWaking()
 
-    AuthContent(state = state, onIntent = viewModel::onIntent)
+    AuthContent(state = state, waking = waking, onIntent = viewModel::onIntent)
 }
 
 @Composable
 private fun AuthContent(
     state: AuthState,
-    onIntent: (AuthIntent) -> Unit
+    onIntent: (AuthIntent) -> Unit,
+    waking: Boolean = false
 ) {
     val isRegister = state.mode == AuthMode.Register
 
@@ -157,6 +161,10 @@ private fun AuthContent(
                         fontWeight = FontWeight.Medium
                     )
                 }
+            }
+
+            if (waking) {
+                ServerWakeNotice()
             }
 
             TextButton(onClick = { onIntent(AuthIntent.SwitchMode) }) {

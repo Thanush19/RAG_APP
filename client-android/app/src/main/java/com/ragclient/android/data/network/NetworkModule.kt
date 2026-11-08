@@ -8,6 +8,9 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -29,16 +32,40 @@ object NetworkModule {
 
     @Provides
     @Singleton
+    fun hostWakeMonitor(): HostWakeMonitor = HostWakeMonitor(
+        // The LAN dev server does not sleep. Only the Render prod host does.
+        enabled = !BuildConfig.IS_DEV_BUILD,
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+        slowAfterMs = HostWakeMonitor.SLOW_AFTER_MS
+    )
+
+    @Provides
+    @Singleton
     fun okHttpClient(
         authInterceptor: AuthInterceptor,
-        tokenAuthenticator: TokenAuthenticator
-    ): OkHttpClient =
-        OkHttpClient.Builder()
+        tokenAuthenticator: TokenAuthenticator,
+        hostWakeMonitor: HostWakeMonitor
+    ): OkHttpClient {
+        val prod = !BuildConfig.IS_DEV_BUILD
+        return OkHttpClient.Builder()
+            .addInterceptor(WakeTrackingInterceptor(hostWakeMonitor))
             .addInterceptor(authInterceptor)
+            .addInterceptor(
+                ColdStartRetryInterceptor(enabled = prod)
+            )
             .authenticator(tokenAuthenticator)
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(0, TimeUnit.MILLISECONDS) // SSE streams; per-call timeouts elsewhere
+            // Render's proxy accepts the socket quickly, then holds it while
+            // the free instance boots. The read wait is per-call (see the
+            // retry interceptor); SSE keeps an unlimited read timeout.
+            .connectTimeout(if (prod) 30 else 15, TimeUnit.SECONDS)
+            .apply {
+                // Default write timeout is 10s, which is enough on the LAN.
+                // A cold prod host plus a PDF needs much longer.
+                if (prod) writeTimeout(5, TimeUnit.MINUTES)
+            }
+            .readTimeout(0, TimeUnit.MILLISECONDS)
             .build()
+    }
 
     @Provides
     @Singleton

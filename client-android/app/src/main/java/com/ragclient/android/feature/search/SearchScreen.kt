@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -90,12 +91,22 @@ private fun SearchContent(
         }
 
         if (state.isLoading) {
-            Text(
-                text = "Searching…",
-                style = AppType.Body,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.padding(vertical = 16.dp)
-            )
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = "Searching…",
+                    style = AppType.Body,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         } else if (state.hasSearched && state.results.isEmpty()) {
             Text(
                 text = "No passage in your documents matched that. Try different wording.",
