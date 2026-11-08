@@ -15,6 +15,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -37,7 +41,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ragclient.android.core.designsystem.AppColors
 import com.ragclient.android.core.designsystem.AppIcons
 import com.ragclient.android.core.designsystem.AppType
-
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.graphics.ImageBitmap
 @Composable
 fun ViewerScreen(
     onBack: () -> Unit,
@@ -112,21 +117,29 @@ fun ViewerScreen(
                 )
             }
 
-            else -> PdfPager(state = state, onIntent = viewModel::onIntent)
+            else -> PdfPager(
+                state = state,
+                viewModel = viewModel
+            )
         }
     }
 }
 
+
 @Composable
 private fun PdfPager(
     state: ViewerState,
-    onIntent: (ViewerIntent) -> Unit
+    viewModel: ViewerViewModel
 ) {
-    val pagerState = rememberPagerState(pageCount = { state.pageCount })
+    val pagerState = rememberPagerState(
+        pageCount = { state.pageCount }
+    )
 
     LaunchedEffect(state.initialPage, state.pageCount) {
         if (state.pageCount > 0) {
-            pagerState.scrollToPage(state.initialPage.coerceIn(0, state.pageCount - 1))
+            pagerState.scrollToPage(
+                state.initialPage.coerceIn(0, state.pageCount - 1)
+            )
         }
     }
 
@@ -134,13 +147,57 @@ private fun PdfPager(
         state = pagerState,
         modifier = Modifier.fillMaxSize()
     ) { index ->
-        PageView(
-            bitmap = state.pages[index],
-            onVisible = { widthPx -> onIntent(ViewerIntent.PageVisible(index, widthPx)) },
-            modifier = Modifier.fillMaxSize()
-        )
+        val pageAspect = state.pageAspects
+            .getOrNull(index)
+            ?: (1f / 1.414f)
+
+        var bitmap by remember(index) {
+            mutableStateOf<ImageBitmap?>(null)
+        }
+
+        var widthPx by remember {
+            mutableIntStateOf(0)
+        }
+
+        LaunchedEffect(widthPx, index) {
+            if (widthPx > 0 && bitmap == null) {
+                bitmap = viewModel.renderPage(index, widthPx)
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(12.dp),
+            contentAlignment = Alignment.TopCenter
+        ) {
+            if (bitmap != null) {
+                Image(
+                    bitmap = bitmap!!,
+                    contentDescription = "PDF page ${index + 1}",
+                    modifier = Modifier.fillMaxWidth()
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(pageAspect)
+                        .onSizeChanged {
+                            widthPx = it.width
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        }
     }
 }
+
 
 @Composable
 private fun PageView(
