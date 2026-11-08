@@ -79,7 +79,6 @@ private fun AuthContent(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
-            BrandMark()
 
             Text(
                 text = if (isRegister) "Create your library" else "Welcome back",

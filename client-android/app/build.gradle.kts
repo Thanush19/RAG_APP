@@ -1,10 +1,21 @@
+
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
-    // Built-in Kotlin support (AGP 9): org.jetbrains.kotlin.android is NOT applied.
+
+    // Built-in Kotlin support (AGP 9).
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
+}
+
+// Load production signing credentials.
+val keystoreProperties = Properties().apply {
+    rootProject.file("keystore.properties").inputStream().use {
+        load(it)
+    }
 }
 
 android {
@@ -18,46 +29,80 @@ android {
         versionCode = 1
         versionName = "0.1.0"
 
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner =
+            "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    // Production signing configuration.
+    signingConfigs {
+        create("prodRelease") {
+            storeFile = rootProject.file(
+                keystoreProperties.getProperty("storeFile")
+            )
+            storePassword =
+                keystoreProperties.getProperty("storePassword")
+            keyAlias =
+                keystoreProperties.getProperty("keyAlias")
+            keyPassword =
+                keystoreProperties.getProperty("keyPassword")
+        }
     }
 
     flavorDimensions += "environment"
 
-    // Base URL is a build-time knob, not a source edit: pass
-    // -Prag.prodBaseUrl=https://api.yourhost/ (or set it in gradle.properties).
+    // API base URL configuration.
     val devBaseUrl = providers.gradleProperty("rag.devBaseUrl")
         .getOrElse("http://127.0.0.1:8080/")
+
     val prodBaseUrl = providers.gradleProperty("rag.prodBaseUrl")
-        // RFC-2606 .invalid never resolves, so an unconfigured prod build
-        // fails with the client's own "can't reach the server" copy instead of
-        // silently talking to somebody else's host.
         .getOrElse("https://api.example.invalid/")
 
     productFlavors {
         create("dev") {
             dimension = "environment"
             applicationIdSuffix = ".dev"
-            // 127.0.0.1 works on an emulator AND on a USB device, but only once
-            // the tunnel exists: adb reverse tcp:8080 tcp:8080 (re-run after
-            // replugging). For a phone on the same Wi-Fi, pass
-            // -Prag.devBaseUrl=http://<pc-lan-ip>:8080/.
-            buildConfigField("String", "API_BASE_URL", "\"$devBaseUrl\"")
-            buildConfigField("boolean", "IS_DEV_BUILD", "true")
+
+            // Local development backend.
+            buildConfigField(
+                "String",
+                "API_BASE_URL",
+                "\"$devBaseUrl\""
+            )
+            buildConfigField(
+                "boolean",
+                "IS_DEV_BUILD",
+                "true"
+            )
         }
+
         create("prod") {
             dimension = "environment"
-            // Cleartext is a dev-only capability (src/dev/AndroidManifest.xml),
-            // so prod must be given an https URL.
-            buildConfigField("String", "API_BASE_URL", "\"$prodBaseUrl\"")
-            buildConfigField("boolean", "IS_DEV_BUILD", "false")
+
+            // Production backend.
+            buildConfigField(
+                "String",
+                "API_BASE_URL",
+                "\"$prodBaseUrl\""
+            )
+            buildConfigField(
+                "boolean",
+                "IS_DEV_BUILD",
+                "false"
+            )
         }
     }
 
     buildTypes {
         release {
+            // Apply production signing.
+            signingConfig = signingConfigs.getByName("prodRelease")
+
             isMinifyEnabled = false
+
             proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
+                getDefaultProguardFile(
+                    "proguard-android-optimize.txt"
+                ),
                 "proguard-rules.pro"
             )
         }
@@ -70,6 +115,7 @@ android {
 
     kotlin {
         jvmToolchain(17)
+
         compilerOptions {
             freeCompilerArgs.add("-Xskip-prerelease-check")
         }
@@ -127,6 +173,7 @@ dependencies {
     testImplementation(libs.turbine)
     testImplementation(libs.mockwebserver)
     testImplementation(libs.kotlinx.coroutines.test)
+
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
